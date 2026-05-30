@@ -13,8 +13,12 @@ import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.Switch
 import android.widget.TextView
+import android.widget.TimePicker
+import java.util.Calendar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -38,6 +42,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statsText: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
+
+    // スケジュール UI
+    private lateinit var scheduleSwitch: Switch
+    private lateinit var onPicker: TimePicker
+    private lateinit var offPicker: TimePicker
+    private lateinit var dayCheckboxes: Array<CheckBox>
+    private lateinit var saveScheduleButton: Button
+    private lateinit var testBlackButton: Button
+    private lateinit var scheduleNextText: TextView
 
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
@@ -74,10 +87,104 @@ class MainActivity : AppCompatActivity() {
         startButton.setOnClickListener { ensurePermissionsAndStart() }
         stopButton.setOnClickListener { stopService(Intent(this, BleService::class.java)) }
 
+        // スケジュール UI 取得
+        scheduleSwitch = findViewById(R.id.switch_schedule)
+        onPicker = findViewById(R.id.picker_on_time)
+        offPicker = findViewById(R.id.picker_off_time)
+        dayCheckboxes = arrayOf(
+            findViewById(R.id.cb_sun),  // index 1 = SUNDAY
+            findViewById(R.id.cb_mon),
+            findViewById(R.id.cb_tue),
+            findViewById(R.id.cb_wed),
+            findViewById(R.id.cb_thu),
+            findViewById(R.id.cb_fri),
+            findViewById(R.id.cb_sat),
+        )
+        saveScheduleButton = findViewById(R.id.button_save_schedule)
+        testBlackButton = findViewById(R.id.button_test_black)
+        scheduleNextText = findViewById(R.id.text_schedule_next)
+
+        onPicker.setIs24HourView(true)
+        offPicker.setIs24HourView(true)
+
+        loadScheduleIntoUI()
+
+        saveScheduleButton.setOnClickListener {
+            saveScheduleFromUI()
+            ScheduleManager.rescheduleAll(this)
+            refreshScheduleNext()
+        }
+        testBlackButton.setOnClickListener {
+            startActivity(Intent(this, BlackScreenActivity::class.java))
+        }
+
         // 起動時、必要権限が揃っていれば自動でサービス開始
         if (hasAllPermissions() && Config.webhookUrl(this).isNotBlank()) {
             startBleService()
         }
+
+        // 起動時にスケジュール再予約
+        ScheduleManager.rescheduleAll(this)
+        refreshScheduleNext()
+    }
+
+    private fun loadScheduleIntoUI() {
+        val cfg = ScheduleConfig.load(this)
+        scheduleSwitch.isChecked = cfg.enabled
+        onPicker.hour = cfg.onHour
+        onPicker.minute = cfg.onMinute
+        offPicker.hour = cfg.offHour
+        offPicker.minute = cfg.offMinute
+        // index 0=SUN(Calendar.SUNDAY=1), 1=MON(2), ... 6=SAT(7)
+        for (i in 0..6) {
+            val calDay = i + 1  // Calendar.SUNDAY..SATURDAY = 1..7
+            dayCheckboxes[i].isChecked = cfg.isDayActive(calDay)
+        }
+    }
+
+    private fun saveScheduleFromUI() {
+        var mask = 0
+        for (i in 0..6) {
+            val calDay = i + 1
+            if (dayCheckboxes[i].isChecked) mask = mask or (1 shl calDay)
+        }
+        val cfg = ScheduleConfig(
+            enabled = scheduleSwitch.isChecked,
+            onHour = onPicker.hour,
+            onMinute = onPicker.minute,
+            offHour = offPicker.hour,
+            offMinute = offPicker.minute,
+            daysMask = mask,
+        )
+        ScheduleConfig.save(this, cfg)
+    }
+
+    private fun refreshScheduleNext() {
+        val cfg = ScheduleConfig.load(this)
+        if (!cfg.enabled) {
+            scheduleNextText.text = "スケジュール: 無効"
+            return
+        }
+        val now = Calendar.getInstance()
+        val nextOn = nextOccurrenceForUi(now, cfg, cfg.onHour, cfg.onMinute)
+        val nextOff = nextOccurrenceForUi(now, cfg, cfg.offHour, cfg.offMinute)
+        val fmt = java.text.SimpleDateFormat("MM/dd(E) HH:mm", java.util.Locale.JAPAN)
+        scheduleNextText.text = "次回 ON: ${fmt.format(nextOn.time)}   次回 OFF: ${fmt.format(nextOff.time)}"
+    }
+
+    private fun nextOccurrenceForUi(now: Calendar, cfg: ScheduleConfig, hour: Int, minute: Int): Calendar {
+        val target = (now.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        for (i in 0..7) {
+            val candidate = (target.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, i) }
+            if (i == 0 && !candidate.after(now)) continue
+            if (cfg.isDayActive(candidate.get(Calendar.DAY_OF_WEEK))) return candidate
+        }
+        return (target.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }
     }
 
     override fun onResume() {

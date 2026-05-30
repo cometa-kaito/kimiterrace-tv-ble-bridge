@@ -32,6 +32,17 @@
     <!-- Wakelock (CPU をスリープさせない) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- 正確なアラーム（スケジュール機能用） -->
+    <uses-permission
+        android:name="android.permission.SCHEDULE_EXACT_ALARM"
+        tools:targetApi="s" />
+    <uses-permission
+        android:name="android.permission.USE_EXACT_ALARM"
+        tools:targetApi="tiramisu" />
+
+    <!-- 他アプリの上に重ねる（黒画面 Activity 表示の補助） -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Bluetooth LE 必須機能 -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -74,6 +85,22 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- スケジュールで OFF 時間中に表示する全画面黒 Activity -->
+        <activity
+            android:name=".BlackScreenActivity"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:showOnLockScreen="true"
+            android:theme="@style/Theme.TVBleBridge.Black"
+            android:turnScreenOn="false" />
+
+        <!-- スケジュール ON/OFF アラーム受信 -->
+        <receiver
+            android:name=".ScheduleAlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <!-- 端末起動時に BleService を自動開始 -->
         <receiver

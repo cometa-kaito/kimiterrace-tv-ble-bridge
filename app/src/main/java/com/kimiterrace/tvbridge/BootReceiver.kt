@@ -14,9 +14,16 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Log.i(TAG, "boot intent: ${intent.action}")
 
-        // Webhook URL が未設定なら起動しない（初期セットアップが必要）
+        // スケジュール再予約は webhook 設定の有無に関係なく実施
+        try {
+            ScheduleManager.rescheduleAll(context)
+        } catch (e: Throwable) {
+            Log.w(TAG, "schedule reschedule failed on boot", e)
+        }
+
+        // Webhook URL が未設定なら BLE サービスは起動しない（初期セットアップが必要）
         if (Config.webhookUrl(context).isBlank()) {
-            Log.w(TAG, "webhook_url not set, skipping autostart")
+            Log.w(TAG, "webhook_url not set, skipping BleService autostart")
             return
         }
 
@@ -25,6 +32,15 @@ class BootReceiver : BroadcastReceiver() {
             context.startForegroundService(svc)
         } else {
             context.startService(svc)
+        }
+
+        // 起動時点が OFF 期間内なら即時黒画面表示
+        val cfg = ScheduleConfig.load(context)
+        if (cfg.enabled && cfg.isCurrentlyInOffPeriod(java.util.Calendar.getInstance())) {
+            context.startActivity(
+                Intent(context, BlackScreenActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         }
     }
 
