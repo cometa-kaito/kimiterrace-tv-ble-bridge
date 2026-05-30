@@ -78,15 +78,12 @@ class SignageActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 画面常時 ON
+        // 画面常時 ON ＋ フルスクリーン flag
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
         )
-
-        // フルスクリーン Immersive
-        enterImmersiveMode()
 
         // ルートビューを黒地で構築
         val root = FrameLayout(this).apply {
@@ -117,6 +114,9 @@ class SignageActivity : AppCompatActivity() {
         root.addView(statusText)
 
         setContentView(root)
+
+        // Immersive モードは setContentView 後に呼ぶ（insetsController は DecorView 確定後に有効）
+        enterImmersiveMode()
 
         // URL ロード
         currentUrl = Config.signageUrl(this)
@@ -191,11 +191,15 @@ class SignageActivity : AppCompatActivity() {
 
     private fun enterImmersiveMode() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.setDecorFitsSystemWindows(false)
+            try {
+                window.setDecorFitsSystemWindows(false)
+            } catch (_: Throwable) {}
             window.insetsController?.let {
-                it.hide(android.view.WindowInsets.Type.systemBars())
-                it.systemBarsBehavior =
-                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                try {
+                    it.hide(android.view.WindowInsets.Type.systemBars())
+                    it.systemBarsBehavior =
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } catch (_: Throwable) {}
             }
         } else {
             @Suppress("DEPRECATION")
