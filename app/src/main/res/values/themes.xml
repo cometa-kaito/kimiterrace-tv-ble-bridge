@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Google TV / Android TV 向けのダークテーマ -->
+    <style name="Theme.TVBleBridge" parent="Theme.MaterialComponents.NoActionBar">
+        <item name="android:windowBackground">#000000</item>
+        <item name="colorPrimary">#1976D2</item>
+        <item name="colorPrimaryDark">#0D47A1</item>
+        <item name="colorAccent">#FF4081</item>
+        <item name="android:statusBarColor" tools:targetApi="l">#000000</item>
+    </style>
+</resources>
