@@ -162,6 +162,119 @@
             android:textColor="#888888"
             android:textSize="14sp" />
 
+        <!-- ===== サイネージ + リモート設定セクション ===== -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="32dp"
+            android:layout_marginBottom="16dp"
+            android:background="#444444" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🖥 サイネージ表示（内蔵キオスク）"
+            android:textColor="#FFFFFF"
+            android:textSize="24sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Fully Kiosk 代替の内蔵 WebView。指定 URL をフルスクリーン表示します。"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="サイネージ URL"
+            android:textColor="#AAAAAA"
+            android:textSize="18sp" />
+
+        <EditText
+            android:id="@+id/input_signage_url"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#222222"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888"
+            android:hint="https://www.school-signage.net/ など"
+            android:padding="12dp"
+            android:textSize="22sp"
+            android:singleLine="true"
+            android:inputType="textUri" />
+
+        <CheckBox
+            android:id="@+id/cb_autolaunch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="端末起動時に自動でサイネージを開く"
+            android:textColor="#FFFFFF"
+            android:textSize="18sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/button_launch_signage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:padding="16dp"
+                android:text="▶ サイネージ起動"
+                android:textSize="20sp" />
+
+            <Space
+                android:layout_width="16dp"
+                android:layout_height="match_parent" />
+
+            <Button
+                android:id="@+id/button_save_signage"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:padding="16dp"
+                android:text="設定保存"
+                android:textSize="20sp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="🌐 リモート設定エンドポイント (任意)"
+            android:textColor="#AAAAAA"
+            android:textSize="18sp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="設定すると、ここに 1 分ごとに GET して リモートで設定変更できます"
+            android:textColor="#888888"
+            android:textSize="13sp" />
+
+        <EditText
+            android:id="@+id/input_config_endpoint"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:background="#222222"
+            android:textColor="#FFFFFF"
+            android:textColorHint="#888888"
+            android:hint="https://www.school-signage.net/api/tv/config?key=..."
+            android:padding="12dp"
+            android:textSize="22sp"
+            android:singleLine="true"
+            android:inputType="textUri" />
+
         <!-- ===== スケジュールセクション ===== -->
         <View
             android:layout_width="match_parent"

@@ -104,6 +104,23 @@
             android:theme="@style/Theme.TVBleBridge.Black"
             android:turnScreenOn="false" />
 
+        <!-- フルスクリーンキオスク：WebView でサイネージを表示 -->
+        <activity
+            android:name=".SignageActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:showOnLockScreen="true"
+            android:theme="@style/Theme.TVBleBridge.Black"
+            android:turnScreenOn="true">
+            <!-- 外部から am start で起動可能（adb で開発検証用） -->
+            <intent-filter>
+                <action android:name="com.kimiterrace.tvbridge.OPEN_SIGNAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
         <!-- スケジュール ON/OFF アラーム受信 -->
         <receiver
             android:name=".ScheduleAlarmReceiver"

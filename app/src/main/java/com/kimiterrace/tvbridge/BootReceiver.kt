@@ -41,6 +41,12 @@ class BootReceiver : BroadcastReceiver() {
                 Intent(context, BlackScreenActivity::class.java)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             )
+        } else if (Config.autoLaunchSignage(context) && Config.signageUrl(context).isNotBlank()) {
+            // OFF 期間外で signage 自動起動が有効ならサイネージを開く
+            context.startActivity(
+                Intent(context, SignageActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
         }
     }
 

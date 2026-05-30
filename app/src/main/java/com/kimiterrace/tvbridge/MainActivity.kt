@@ -52,6 +52,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var testBlackButton: Button
     private lateinit var scheduleNextText: TextView
 
+    // サイネージ / リモート設定 UI
+    private lateinit var signageUrlInput: EditText
+    private lateinit var autoLaunchCheckbox: CheckBox
+    private lateinit var launchSignageButton: Button
+    private lateinit var saveSignageButton: Button
+    private lateinit var configEndpointInput: EditText
+
     private val refreshHandler = Handler(Looper.getMainLooper())
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -116,6 +123,38 @@ class MainActivity : AppCompatActivity() {
         }
         testBlackButton.setOnClickListener {
             startActivity(Intent(this, BlackScreenActivity::class.java))
+        }
+
+        // サイネージ / リモート設定 UI 取得
+        signageUrlInput = findViewById(R.id.input_signage_url)
+        autoLaunchCheckbox = findViewById(R.id.cb_autolaunch)
+        launchSignageButton = findViewById(R.id.button_launch_signage)
+        saveSignageButton = findViewById(R.id.button_save_signage)
+        configEndpointInput = findViewById(R.id.input_config_endpoint)
+
+        signageUrlInput.setText(Config.signageUrl(this))
+        autoLaunchCheckbox.isChecked = Config.autoLaunchSignage(this)
+        configEndpointInput.setText(Config.configEndpoint(this))
+
+        signageUrlInput.addTextChangedListener(simpleWatcher { Config.setSignageUrl(this, it) })
+        configEndpointInput.addTextChangedListener(simpleWatcher { Config.setConfigEndpoint(this, it) })
+        autoLaunchCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            Config.setAutoLaunchSignage(this, isChecked)
+        }
+
+        launchSignageButton.setOnClickListener {
+            val url = signageUrlInput.text.toString().trim()
+            if (url.isBlank()) {
+                statusText.text = "サイネージURLを入力してください"
+                return@setOnClickListener
+            }
+            Config.setSignageUrl(this, url)
+            startActivity(Intent(this, SignageActivity::class.java))
+        }
+        saveSignageButton.setOnClickListener {
+            Config.setSignageUrl(this, signageUrlInput.text.toString().trim())
+            Config.setConfigEndpoint(this, configEndpointInput.text.toString().trim())
+            Config.setAutoLaunchSignage(this, autoLaunchCheckbox.isChecked)
         }
 
         // 起動時、必要権限が揃っていれば自動でサービス開始

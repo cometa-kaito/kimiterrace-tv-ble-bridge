@@ -94,6 +94,12 @@ class BleService : Service() {
             scope = scope,
         )
 
+        // ConfigPoller — リモート設定を定期取得
+        ConfigPoller(
+            context = applicationContext,
+            scope = scope,
+        )
+
         Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${webhookUrl.take(60)}...")
 
         startScan()
