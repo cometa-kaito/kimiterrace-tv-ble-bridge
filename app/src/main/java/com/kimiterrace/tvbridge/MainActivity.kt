@@ -136,7 +136,10 @@ class MainActivity : AppCompatActivity() {
         autoLaunchCheckbox.isChecked = Config.autoLaunchSignage(this)
         configEndpointInput.setText(Config.configEndpoint(this))
 
-        signageUrlInput.addTextChangedListener(simpleWatcher { Config.setSignageUrl(this, it) })
+        signageUrlInput.addTextChangedListener(simpleWatcher {
+            Config.setSignageUrl(this, it)
+            Config.extractAndSaveClassroomContext(this, it)
+        })
         configEndpointInput.addTextChangedListener(simpleWatcher { Config.setConfigEndpoint(this, it) })
         autoLaunchCheckbox.setOnCheckedChangeListener { _, isChecked ->
             Config.setAutoLaunchSignage(this, isChecked)
@@ -152,7 +155,9 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, SignageActivity::class.java))
         }
         saveSignageButton.setOnClickListener {
-            Config.setSignageUrl(this, signageUrlInput.text.toString().trim())
+            val url = signageUrlInput.text.toString().trim()
+            Config.setSignageUrl(this, url)
+            Config.extractAndSaveClassroomContext(this, url)
             Config.setConfigEndpoint(this, configEndpointInput.text.toString().trim())
             Config.setAutoLaunchSignage(this, autoLaunchCheckbox.isChecked)
         }

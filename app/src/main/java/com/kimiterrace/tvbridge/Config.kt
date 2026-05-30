@@ -19,6 +19,13 @@ object Config {
     private const val KEY_CONFIG_ENDPOINT = "config_endpoint"
     private const val KEY_CONFIG_VERSION = "config_version"
     private const val KEY_AUTOLAUNCH_SIGNAGE = "autolaunch_signage"
+    // Phase 4: マルチデバイス対応
+    private const val KEY_DEVICE_ID = "device_id"
+    private const val KEY_SCHOOL_ID = "school_id"
+    private const val KEY_GRADE_ID = "grade_id"
+    private const val KEY_DEPARTMENT_ID = "department_id"
+    private const val KEY_CLASS_ID = "class_id"
+    private const val KEY_DEVICE_LABEL = "device_label"
 
     fun targetMac(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -99,6 +106,63 @@ object Config {
     fun setConfigVersion(context: Context, version: Long) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
             putLong(KEY_CONFIG_VERSION, version)
+        }
+    }
+
+    // ---------- マルチデバイス対応：device_id + 教室コンテキスト ----------
+
+    /**
+     * 端末識別子（初回読み出し時に UUIDv4 を生成して永続化）。
+     * 教室移動・APK 再インストールしてもなるべく維持されるが、
+     * アンインストール→クリーン再インストールでは新規発行される。
+     */
+    fun deviceId(context: Context): String {
+        val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val existing = p.getString(KEY_DEVICE_ID, null)
+        if (!existing.isNullOrBlank()) return existing
+        val fresh = java.util.UUID.randomUUID().toString()
+        p.edit { putString(KEY_DEVICE_ID, fresh) }
+        return fresh
+    }
+
+    fun schoolId(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_SCHOOL_ID, null)?.takeIf { it.isNotBlank() }
+
+    fun gradeId(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_GRADE_ID, null)?.takeIf { it.isNotBlank() }
+
+    fun departmentId(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_DEPARTMENT_ID, null)?.takeIf { it.isNotBlank() }
+
+    fun classId(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CLASS_ID, null)?.takeIf { it.isNotBlank() }
+
+    fun deviceLabel(context: Context): String? =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_DEVICE_LABEL, null)?.takeIf { it.isNotBlank() }
+
+    /**
+     * signage URL から school/grade/department/class クエリパラメータを抽出して保存。
+     * URL が変わった瞬間に呼ぶ。
+     */
+    fun extractAndSaveClassroomContext(context: Context, signageUrl: String) {
+        if (signageUrl.isBlank()) return
+        val parsed = SignageUrlParser.parse(signageUrl) ?: return
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            parsed.schoolId?.let { putString(KEY_SCHOOL_ID, it) }
+            parsed.gradeId?.let { putString(KEY_GRADE_ID, it) }
+            parsed.departmentId?.let { putString(KEY_DEPARTMENT_ID, it) }
+            parsed.classId?.let { putString(KEY_CLASS_ID, it) }
+        }
+    }
+
+    fun setDeviceLabel(context: Context, label: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_DEVICE_LABEL, label)
         }
     }
 }

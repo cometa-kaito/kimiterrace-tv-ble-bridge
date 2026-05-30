@@ -98,6 +98,13 @@ class Uploader(
                 put("timeOfSample", detectedAtMs)
                 if (battery != null) put("battery", battery)
                 put("source", "tv-ble-bridge")
+                // Phase 4: 教室コンテキスト
+                put("tv_device_id", Config.deviceId(context))
+                Config.schoolId(context)?.let { put("school_id", it) }
+                Config.gradeId(context)?.let { put("grade_id", it) }
+                Config.departmentId(context)?.let { put("department_id", it) }
+                Config.classId(context)?.let { put("class_id", it) }
+                Config.deviceLabel(context)?.let { put("device_label", it) }
             }
             put("context", ctx)
         }.toString()

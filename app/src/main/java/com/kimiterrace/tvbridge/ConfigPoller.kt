@@ -72,9 +72,19 @@ class ConfigPoller(
     }
 
     private fun pollOnce() {
-        val endpoint = Config.configEndpoint(context)
-        if (endpoint.isBlank()) {
+        val rawEndpoint = Config.configEndpoint(context)
+        if (rawEndpoint.isBlank()) {
             return  // 未設定なら何もしない（PoC 初期は config endpoint なしでも動作）
+        }
+
+        // device_id を query に追加（既にある場合は重複しないようマージ）
+        val deviceId = Config.deviceId(context)
+        val endpoint = if (rawEndpoint.contains("device_id=")) {
+            rawEndpoint
+        } else if (rawEndpoint.contains("?")) {
+            "$rawEndpoint&device_id=$deviceId"
+        } else {
+            "$rawEndpoint?device_id=$deviceId"
         }
 
         val req = Request.Builder().url(endpoint).get().build()
