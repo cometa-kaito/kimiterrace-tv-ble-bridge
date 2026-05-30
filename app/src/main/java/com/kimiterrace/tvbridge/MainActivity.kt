@@ -173,7 +173,7 @@ class MainActivity : AppCompatActivity() {
             val t = SimpleDateFormat("HH:mm:ss", Locale.JAPAN).format(Date(syncedAt))
             if (syncOk) "$t (OK)" else "$t (失敗→蓄積中)"
         } else "未試行"
-        statsText.text = "累計: $total件   未送信: $pending件   最終同期: $syncStr"
+        statsText.text = "累計: ${total}件   未送信: ${pending}件   最終同期: $syncStr"
     }
 
     private fun simpleWatcher(onChange: (String) -> Unit): TextWatcher {
