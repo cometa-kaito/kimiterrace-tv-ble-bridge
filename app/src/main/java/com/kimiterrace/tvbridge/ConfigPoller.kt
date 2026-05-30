@@ -162,6 +162,8 @@ class ConfigPoller(
             if (newSched != existing) {
                 ScheduleConfig.save(context, newSched)
                 ScheduleManager.rescheduleAll(context)
+                // スケジュール変更を即時に画面へ反映（OFF時間帯のさなかの有効化でも黒画面化）
+                ScheduleManager.applyCurrentState(context)
                 Log.i(TAG, "schedule updated")
             }
         }

@@ -48,6 +48,44 @@ object ScheduleManager {
     }
 
     /**
+     * 現在時刻に応じて画面状態を反映する。
+     * - OFF 期間内（休日含む）→ 黒画面 Activity を前面化
+     * - ON 期間内 → 黒画面を解除し、（autoLaunch 有効なら）サイネージを前面化
+     * - スケジュール無効 → 黒画面が出ていれば解除
+     *
+     * 起動時・スケジュール変更時・アラーム発火後に呼ぶことで
+     * 「設定は反映済みなのに画面状態が追従しない」状態を防ぐ。
+     * バックグラウンドからの startActivity 成立には SYSTEM_ALERT_WINDOW 付与が前提。
+     */
+    fun applyCurrentState(context: Context) {
+        val cfg = ScheduleConfig.load(context)
+        if (!cfg.enabled) {
+            context.sendBroadcast(
+                Intent(BlackScreenActivity.ACTION_DISMISS).setPackage(context.packageName)
+            )
+            return
+        }
+        if (cfg.isCurrentlyInOffPeriod(Calendar.getInstance())) {
+            context.startActivity(
+                Intent(context, BlackScreenActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+            Log.i(TAG, "applyCurrentState: OFF period -> black screen")
+        } else {
+            context.sendBroadcast(
+                Intent(BlackScreenActivity.ACTION_DISMISS).setPackage(context.packageName)
+            )
+            if (Config.autoLaunchSignage(context) && Config.signageUrl(context).isNotBlank()) {
+                context.startActivity(
+                    Intent(context, SignageActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+            Log.i(TAG, "applyCurrentState: ON period -> dismiss black / show signage")
+        }
+    }
+
+    /**
      * 指定時刻の「次回発火タイミング」を ScheduleConfig の曜日マスクを尊重して計算。
      * 当日該当曜日かつ未来の時刻ならその当日。さもなくば翌週内の最初の有効曜日へ。
      */

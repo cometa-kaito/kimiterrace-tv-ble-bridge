@@ -34,20 +34,9 @@ class BootReceiver : BroadcastReceiver() {
             context.startService(svc)
         }
 
-        // 起動時点が OFF 期間内なら即時黒画面表示
-        val cfg = ScheduleConfig.load(context)
-        if (cfg.enabled && cfg.isCurrentlyInOffPeriod(java.util.Calendar.getInstance())) {
-            context.startActivity(
-                Intent(context, BlackScreenActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } else if (Config.autoLaunchSignage(context) && Config.signageUrl(context).isNotBlank()) {
-            // OFF 期間外で signage 自動起動が有効ならサイネージを開く
-            context.startActivity(
-                Intent(context, SignageActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
+        // 起動直後の画面状態を現在時刻に合わせる
+        //（OFF 期間→黒画面 / ON 期間→サイネージ。判定は ScheduleManager に一元化）
+        ScheduleManager.applyCurrentState(context)
     }
 
     companion object {
