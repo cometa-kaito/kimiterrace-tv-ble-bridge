@@ -19,9 +19,12 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * BLE スキャン常駐 Foreground Service。
@@ -80,12 +83,16 @@ class BleService : Service() {
         val btManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = btManager.adapter
 
-        // Wake lock
+        // Wake lock（CPU を起こし続けるだけ。画面 ON 維持は別途 KeepAwakeManager が担う）
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TVBleBridge::scan").apply {
             setReferenceCounted(false)
             acquire()
         }
+
+        // 画面オフ・スリープ・スクリーンセーバを無効化（権限があれば。再起動 revert 対策で常駐中も再適用）
+        KeepAwakeManager.applyNoSleepSettings(applicationContext)
+        startKeepAwakeLoop()
 
         // Uploader
         uploader = Uploader(
@@ -107,6 +114,28 @@ class BleService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return START_STICKY  // 殺されたら復活
+    }
+
+    /**
+     * 常駐キープアライブ。60 秒ごとに:
+     *  - ON 時間帯にサイネージが前面から外れていれば前面へ戻す（FLAG_KEEP_SCREEN_ON 再付与）
+     *  - 一定間隔で no-sleep 設定を再適用（実行中に設定が戻された場合の保険）
+     */
+    private fun startKeepAwakeLoop() {
+        scope.launch(Dispatchers.Default) {
+            var ticks = 0
+            while (true) {
+                delay(KEEP_AWAKE_INTERVAL_MS)
+                try {
+                    KeepAwakeManager.reassertForegroundIfNeeded(applicationContext)
+                    if (++ticks % SETTINGS_REAPPLY_EVERY_TICKS == 0) {
+                        KeepAwakeManager.applyNoSleepSettings(applicationContext)
+                    }
+                } catch (e: Throwable) {
+                    Log.d(TAG, "keep-awake tick skipped: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -244,5 +273,8 @@ class BleService : Service() {
         private const val CHANNEL_ID = "tv_ble_bridge"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STATUS_UPDATED = "com.kimiterrace.tvbridge.STATUS_UPDATED"
+
+        private const val KEEP_AWAKE_INTERVAL_MS = 60_000L      // 前面チェック間隔（1分）
+        private const val SETTINGS_REAPPLY_EVERY_TICKS = 15     // no-sleep 設定の再適用間隔（≒15分）
     }
 }

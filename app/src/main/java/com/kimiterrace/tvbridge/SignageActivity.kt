@@ -216,6 +216,7 @@ class SignageActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        isForeground = true
         enterImmersiveMode()
 
         val filter = IntentFilter().apply {
@@ -239,6 +240,7 @@ class SignageActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        isForeground = false
         try { unregisterReceiver(controlReceiver) } catch (_: Throwable) {}
         super.onPause()
     }
@@ -268,6 +270,11 @@ class SignageActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "SignageActivity"
         private const val WATCHDOG_INTERVAL_MS = 3_600_000L  // 1時間ごとに自動リロード
+
+        /** サイネージが前面で可視か。KeepAwakeManager が「前面取りこぼし」判定に使う。 */
+        @JvmStatic
+        @Volatile
+        var isForeground: Boolean = false
 
         const val ACTION_RELOAD = "com.kimiterrace.tvbridge.SIGNAGE_RELOAD"
         const val ACTION_UPDATE_URL = "com.kimiterrace.tvbridge.SIGNAGE_UPDATE_URL"

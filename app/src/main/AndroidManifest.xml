@@ -40,6 +40,20 @@
     <!-- Wakelock (CPU をスリープさせない) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      画面オフ/スリープ/スクリーンセーバを OS レベルで無効化するため。
+      signature|privileged|development 権限なので、一度きりの ADB で付与して使う（runbook §4.6）:
+        adb shell pm grant com.kimiterrace.tvbridge android.permission.WRITE_SECURE_SETTINGS
+        adb shell appops set com.kimiterrace.tvbridge WRITE_SETTINGS allow
+      未付与なら KeepAwakeManager は no-op（前面再アサート等の他防御に委ねる）。
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- 正確なアラーム（スケジュール機能用） -->
     <uses-permission
         android:name="android.permission.SCHEDULE_EXACT_ALARM"

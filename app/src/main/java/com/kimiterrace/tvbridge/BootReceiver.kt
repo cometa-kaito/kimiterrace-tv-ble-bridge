@@ -21,6 +21,13 @@ class BootReceiver : BroadcastReceiver() {
             Log.w(TAG, "schedule reschedule failed on boot", e)
         }
 
+        // 再起動で戻る no-sleep 設定（screen_off_timeout / sleep_timeout / screensaver）を毎回適用し直す
+        try {
+            KeepAwakeManager.applyNoSleepSettings(context)
+        } catch (e: Throwable) {
+            Log.w(TAG, "applyNoSleepSettings failed on boot", e)
+        }
+
         // Webhook URL が未設定なら BLE サービスは起動しない（初期セットアップが必要）
         if (Config.webhookUrl(context).isBlank()) {
             Log.w(TAG, "webhook_url not set, skipping BleService autostart")

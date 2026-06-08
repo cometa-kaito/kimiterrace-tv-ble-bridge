@@ -38,6 +38,7 @@ import java.util.concurrent.TimeUnit
  *     "signage_reload": false,
  *     "signage_open": false,
  *     "signage_exit": false,
+ *     "wake": false,
  *     "service_restart": false
  *   }
  * }
@@ -188,6 +189,11 @@ class ConfigPoller(
             context.sendBroadcast(
                 Intent(SignageActivity.ACTION_EXIT).setPackage(context.packageName)
             )
+        }
+        if (cmd.optBoolean("wake", false)) {
+            // 管理側から送る復帰信号：no-sleep 設定を再適用し、サイネージを前面へ戻す
+            Log.i(TAG, "command: wake")
+            KeepAwakeManager.forceWake(context)
         }
         // service_restart 等はリスクが高いので段階的に追加
     }
