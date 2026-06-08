@@ -153,5 +153,22 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!--
+          Device Owner / 端末管理者レシーバ。
+          プロビジョニング時に `dpm set-device-owner …/.TvDeviceAdminReceiver` で端末所有者へ昇格する。
+          所有者になると lockNow()（夜間の画面 OFF）と lock task（キオスク）が PC 不要で使える。
+        -->
+        <receiver
+            android:name=".TvDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

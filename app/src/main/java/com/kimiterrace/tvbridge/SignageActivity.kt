@@ -78,12 +78,22 @@ class SignageActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 画面常時 ON ＋ フルスクリーン flag
+        // 画面常時 ON ＋ 点灯 ＋ ロック画面上に表示 ＋ フルスクリーン flag
+        // FLAG_TURN_SCREEN_ON: 起動時にバックライトを点ける（朝 ON / wake からの復帰で点灯）
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
+
+        // API 27+ の新 API（FLAG_* の後継）。lockNow 後でも画面を起こして前面表示するため。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            runCatching {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            }
+        }
 
         // ルートビューを黒地で構築
         val root = FrameLayout(this).apply {
@@ -214,10 +224,39 @@ class SignageActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Device Owner ならキオスク（lock task）を開始してホーム/戻るによる離脱を抑止する。
+     *
+     * 防御的:
+     *  - Device Owner でなければ何もしない（開発機を lock task で固めてブリックさせない）。
+     *  - 既に lock task 中なら二重開始しない。
+     *  - 例外は握りつぶす（非対応・権限不足でクラッシュさせない）。
+     */
+    private fun maybeStartLockTask() {
+        runCatching {
+            if (!PowerController.isDeviceOwner(this)) return  // 開発機を固めない
+            // 念のため許可リストへ自分を登録（Device Owner のみ有効）
+            PowerController.allowLockTaskSelf(this)
+
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val alreadyLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.lockTaskModeState != android.app.ActivityManager.LOCK_TASK_MODE_NONE
+            } else {
+                @Suppress("DEPRECATION")
+                am.isInLockTaskMode
+            }
+            if (!alreadyLocked) {
+                startLockTask()
+                Log.i(TAG, "lock task started (kiosk)")
+            }
+        }.onFailure { Log.w(TAG, "startLockTask skipped: ${it.message}") }
+    }
+
     override fun onResume() {
         super.onResume()
         isForeground = true
         enterImmersiveMode()
+        maybeStartLockTask()
 
         val filter = IntentFilter().apply {
             addAction(ACTION_RELOAD)

@@ -92,6 +92,9 @@ class BleService : Service() {
 
         // 画面オフ・スリープ・スクリーンセーバを無効化（権限があれば。再起動 revert 対策で常駐中も再適用）
         KeepAwakeManager.applyNoSleepSettings(applicationContext)
+        // Device Owner なら lock task（キオスク）許可リストへ自分を登録しておく
+        //（SignageActivity.startLockTask の前提。Device Owner でなければ no-op）
+        PowerController.allowLockTaskSelf(applicationContext)
         startKeepAwakeLoop()
 
         // Uploader

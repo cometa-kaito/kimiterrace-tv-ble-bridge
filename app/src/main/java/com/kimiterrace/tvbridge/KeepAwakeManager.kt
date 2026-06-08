@@ -87,12 +87,24 @@ object KeepAwakeManager {
     }
 
     /**
-     * ON 時間帯なのにサイネージが前面に居なければ前面へ戻す。
-     * OFF 時間帯（黒画面維持）と autoLaunch 無効構成では何もしない。
+     * 周期的な再アサート（BleService / ConfigPoller が ~1-2 分ごとに呼ぶ）。
+     *
+     * - ON 時間帯: サイネージが前面に居なければ前面へ戻す（FLAG_KEEP_SCREEN_ON 再付与）。
+     * - OFF 時間帯: **絶対にサイネージを再起動しない**（夜間に画面を点け直してしまうため）。
+     *   代わりに、もし画面が点いているように見える場合に備えて screenOff を best-effort で再発行する。
+     *
+     * autoLaunch 無効構成では ON 側の前面化はしない（触らない）。
      */
     fun reassertForegroundIfNeeded(context: Context) {
         val sched = ScheduleConfig.load(context)
-        if (sched.isCurrentlyInOffPeriod(Calendar.getInstance())) return  // OFF は黒を維持
+        if (sched.isCurrentlyInOffPeriod(Calendar.getInstance())) {
+            // OFF 期間: サイネージが万一前面に出ていたら消灯し直す（再起動は決してしない）。
+            if (SignageActivity.isForeground) {
+                Log.i(TAG, "signage foreground during OFF period -> re-assert screenOff")
+                PowerController.screenOff(context)
+            }
+            return  // OFF は黒/消灯を維持（再起動禁止）
+        }
         if (!Config.autoLaunchSignage(context)) return                   // 自動表示しない構成は触らない
         if (Config.signageUrl(context).isBlank()) return
         if (SignageActivity.isForeground) return                         // 既に前面なら何もしない

@@ -87,9 +87,16 @@ object Config {
 
     // ---------- リモート設定エンドポイント ----------
 
+    /**
+     * リモート設定ポーリング先。
+     * 既定は v2（GCP）の LP 互換エンドポイント。
+     * 秘密鍵はソースに焼かないため、プロビジョニングで `?key=<V2_TV_POLL_SECRET>` を含む
+     * 完全な URL を prefs に書き込む（[[dist/provision-googletv.md]] §5 / SAFE FALLBACK）。
+     * key 無しの既定でも GET は飛ぶが、サーバ側で 401 等になり実害なく次周期へ。
+     */
     fun configEndpoint(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return p.getString(KEY_CONFIG_ENDPOINT, "")!!
+        return p.getString(KEY_CONFIG_ENDPOINT, BuildConfig.DEFAULT_CONFIG_ENDPOINT)!!
     }
 
     fun setConfigEndpoint(context: Context, url: String) {
