@@ -28,12 +28,9 @@ class BootReceiver : BroadcastReceiver() {
             Log.w(TAG, "applyNoSleepSettings failed on boot", e)
         }
 
-        // Webhook URL が未設定なら BLE サービスは起動しない（初期セットアップが必要）
-        if (Config.webhookUrl(context).isBlank()) {
-            Log.w(TAG, "webhook_url not set, skipping BleService autostart")
-            return
-        }
-
+        // ConfigPoller（設定/死活/スケジュール ポーリング）は BleService が常駐して回す。
+        // webhook_url（センサ用）の有無に関係なく必要なので、ここで必ず BleService を起動する。
+        // （旧実装は webhook 未設定だと起動せず＝サイネージ専用運用で死活/スケジュール/設定syncが止まっていた）
         val svc = Intent(context, BleService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(svc)

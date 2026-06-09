@@ -98,6 +98,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <!-- no-DOキオスク: HOMEランチャー化（HOME押下でサイネージへ戻す） -->
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 

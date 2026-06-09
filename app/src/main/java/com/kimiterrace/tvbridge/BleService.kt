@@ -119,6 +119,21 @@ class BleService : Service() {
         return START_STICKY  // 殺されたら復活
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // ランチャー等からタスクをスワイプ除去されても常駐を維持するため自分を再起動する
+        try {
+            val restart = Intent(applicationContext, BleService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(restart)
+            } else {
+                applicationContext.startService(restart)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "onTaskRemoved restart failed: ${e.message}")
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     /**
      * 常駐キープアライブ。60 秒ごとに:
      *  - ON 時間帯にサイネージが前面から外れていれば前面へ戻す（FLAG_KEEP_SCREEN_ON 再付与）

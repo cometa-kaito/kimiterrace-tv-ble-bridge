@@ -163,7 +163,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 起動時、必要権限が揃っていれば自動でサービス開始
-        if (hasAllPermissions() && Config.webhookUrl(this).isNotBlank()) {
+        // ConfigPoller（設定/死活/スケジュール）は webhook 無しでも必要なので webhook 条件は外す
+        if (hasAllPermissions()) {
             startBleService()
         }
 
