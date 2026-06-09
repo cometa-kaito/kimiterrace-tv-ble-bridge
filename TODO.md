@@ -300,8 +300,8 @@ setup-new-tv.bat <TV_IP> "<教室ラベル>" "<signage_url>" "<sensor_mac>"
 
 ### Vercel 環境変数（設定済）
 - `TURSO_DATABASE_URL` = `libsql://kimiterrace-sensor-cometa-kaito.aws-ap-northeast-1.turso.io`
-- `TURSO_AUTH_TOKEN` = `eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9...VBeh...32_Bw`
-- `SWITCHBOT_WEBHOOK_SECRET` = `0khL1mUcvIYYEowrO-Z1CuZQGIyMYHerkb30uFuByl0`
+- `TURSO_AUTH_TOKEN` = `<TURSO_AUTH_TOKEN>`
+- `SWITCHBOT_WEBHOOK_SECRET` = `<SWITCHBOT_WEBHOOK_SECRET>`
 
 ### 既知の TV/センサ（電子工学科 1年）
 - TV IP: `10.11.70.227`（家のWi-Fi、Wi-Fi変更で変わる）
@@ -311,8 +311,8 @@ setup-new-tv.bat <TV_IP> "<教室ラベル>" "<signage_url>" "<sensor_mac>"
 
 ### キー URL
 - LP本番: `https://www.school-signage.net/`
-- センサ統計: `https://www.school-signage.net/api/sensor-stats?key=0khL1mUcvIYYEowrO-Z1CuZQGIyMYHerkb30uFuByl0&hours=24`
-- Webhook受信: `https://www.school-signage.net/api/switchbot-webhook?key=0khL1mUcvIYYEowrO-Z1CuZQGIyMYHerkb30uFuByl0`
+- センサ統計: `https://www.school-signage.net/api/sensor-stats?key=<SWITCHBOT_WEBHOOK_SECRET>&hours=24`
+- Webhook受信: `https://www.school-signage.net/api/switchbot-webhook?key=<SWITCHBOT_WEBHOOK_SECRET>`
 - TV設定（未実装）: `https://www.school-signage.net/api/tv/config?device_id=<uuid>&key=...`
 
 ### よく使うコマンド
