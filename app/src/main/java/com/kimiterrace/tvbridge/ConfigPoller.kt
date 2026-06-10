@@ -88,7 +88,11 @@ class ConfigPoller(
             "$rawEndpoint?device_id=$deviceId"
         }
 
-        val req = Request.Builder().url(endpoint).get().build()
+        // FCM トークンがあれば query に付与して v2 へ報告（v2 が遠隔起動プッシュの宛先を知るため）。
+        val endpointWithFcm = Config.fcmToken(context).let { t ->
+            if (t.isNotBlank()) "$endpoint&fcmToken=$t" else endpoint
+        }
+        val req = Request.Builder().url(endpointWithFcm).get().build()
         val resp = httpClient.newCall(req).execute()
         resp.use { r ->
             if (!r.isSuccessful) {

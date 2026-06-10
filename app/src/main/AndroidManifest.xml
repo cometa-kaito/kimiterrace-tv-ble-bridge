@@ -111,6 +111,15 @@
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
 
+        <!-- FCM 受信（遠隔起動）: v2 が 🔴 検知時に wake プッシュ → BleService.ensureRunning -->
+        <service
+            android:name=".FcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <!-- スケジュールで OFF 時間中に表示する全画面黒 Activity -->
         <activity
             android:name=".BlackScreenActivity"

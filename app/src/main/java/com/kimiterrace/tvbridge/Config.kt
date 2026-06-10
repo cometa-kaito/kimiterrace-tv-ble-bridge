@@ -26,6 +26,7 @@ object Config {
     private const val KEY_DEPARTMENT_ID = "department_id"
     private const val KEY_CLASS_ID = "class_id"
     private const val KEY_DEVICE_LABEL = "device_label"
+    private const val KEY_FCM_TOKEN = "fcm_token"
 
     fun targetMac(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -170,6 +171,17 @@ object Config {
     fun setDeviceLabel(context: Context, label: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
             putString(KEY_DEVICE_LABEL, label)
+        }
+    }
+
+    // ---------- FCM トークン（遠隔起動プッシュの宛先。ConfigPoller が v2 へ報告） ----------
+
+    fun fcmToken(context: Context): String =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_FCM_TOKEN, "") ?: ""
+
+    fun setFcmToken(context: Context, token: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_FCM_TOKEN, token)
         }
     }
 }

@@ -113,6 +113,12 @@ class BleService : Service() {
 
         Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${webhookUrl.take(60)}...")
 
+        // FCM トークンを取得→保存（ConfigPoller が次回ポーリングで v2 へ報告＝遠隔起動プッシュの宛先）。
+        runCatching {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { Config.setFcmToken(applicationContext, it) }
+        }.onFailure { Log.d(TAG, "fcm token fetch skipped: ${it.message}") }
+
         startScan()
     }
 
