@@ -24,6 +24,11 @@ class ScheduleAlarmReceiver : BroadcastReceiver() {
             ScheduleManager.ACTION_ALARM_ON -> PowerController.screenOn(context)
         }
 
+        // 自己回復: このアラームは setExactAndAllowWhileIdle で Doze を貫通して必ず発火する。
+        // 発火の度に常駐サービス(BleService=ConfigPoller/ScheduleManager)を起動し直すことで、
+        // 夜間にプロセスが殺されても朝7:00/夜17:00の遷移でポーリング/スケジュールが自動復活する。
+        BleService.ensureRunning(context)
+
         // 次の発火を予約し、現在時刻に応じた画面状態を反映
         //（OFF→黒画面オーバーレイ / ON→黒画面解除＋サイネージ再表示）
         ScheduleManager.rescheduleAll(context)

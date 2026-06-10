@@ -11,6 +11,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -287,6 +288,24 @@ class BleService : Service() {
     )
 
     companion object {
+        /**
+         * BleService(ConfigPoller=死活/設定ポーリング + ScheduleManager のホスト)を起動し直す。
+         * 冪等: 生きていれば onStartCommand(START_STICKY) が再呼び出しされるだけ、死んでいれば復活する。
+         * 自己回復の単一入口（ScheduleAlarmReceiver / BootReceiver / SignageActivity の JS ブリッジから呼ぶ）。
+         */
+        fun ensureRunning(context: Context) {
+            try {
+                val svc = Intent(context, BleService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(svc)
+                } else {
+                    context.startService(svc)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "ensureRunning failed: ${e.message}")
+            }
+        }
+
         private const val TAG = "BleService"
         private const val CHANNEL_ID = "tv_ble_bridge"
         private const val NOTIFICATION_ID = 1001

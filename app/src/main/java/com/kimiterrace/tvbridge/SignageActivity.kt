@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -160,6 +161,11 @@ class SignageActivity : AppCompatActivity() {
         wv.isFocusable = true
         wv.isFocusableInTouchMode = true
 
+        // 遠隔起動 / 自己回復チャネル: 裏方サービス(BleService)が死んでも、前面で生存する WebView から
+        // 蘇生できる。signage ページ(v2・自社ドメインのみ読込・外部ナビは shouldOverrideUrlLoading で遮断)が
+        // 読み込み毎に window.AndroidKiosk.ensureService() を呼ぶ想定。
+        wv.addJavascriptInterface(KioskBridge(applicationContext), "AndroidKiosk")
+
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
@@ -189,6 +195,18 @@ class SignageActivity : AppCompatActivity() {
             }
         }
         wv.webChromeClient = WebChromeClient()
+    }
+
+    /**
+     * WebView から呼べる遠隔/自己回復ブリッジ。WebView は裏方サービスが死んでも前面で生き続けるため、
+     * ここから BleService を起動し直せる。`@JavascriptInterface` は信頼ページ(自社 signage)のみが呼ぶ
+     * （WebView は signage_url=app.school-signage.net のみ読込・外部ナビ遮断）。露出は ensureService のみ。
+     */
+    private class KioskBridge(private val appContext: Context) {
+        @JavascriptInterface
+        fun ensureService() {
+            BleService.ensureRunning(appContext)
+        }
     }
 
     private fun safeReload() {
