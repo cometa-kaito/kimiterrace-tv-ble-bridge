@@ -36,6 +36,29 @@ Turso DB
 ビルドし、Actions の Artifacts に置く。Actions タブから `tv-ble-bridge-debug-apk` を
 ダウンロード → ZIP 解凍 → `tv-ble-bridge-debug.apk` を Google TV へ sideload。
 
+#### Firebase（FCM 遠隔起動）の設定 — 本番ビルド時に必須
+
+`google-services` プラグインはビルド時に `app/google-services.json` を必須とするが、
+同ファイルは実 Firebase 鍵を含むため **`.gitignore` 済み**（リポジトリに焼かない）。
+CI は次のように動く:
+
+- **GitHub Secret `GOOGLE_SERVICES_JSON_BASE64` が設定されていれば** → それを復号して
+  `app/google-services.json` を生成 → **FCM 遠隔起動が機能する本番 APK** をビルド。
+- **未設定なら** → 同梱のダミー（`app/google-services.json.ci-placeholder`）を使って
+  **ビルドだけ通す**（この APK では FCM 受信は機能しない＝センサ/スケジュール/設定sync は動く）。
+
+本番 FCM を有効にする手順:
+
+1. Firebase コンソールで Android アプリ（package `com.kimiterrace.tvbridge`）を登録し、
+   `google-services.json` をダウンロード。
+2. base64 化:
+   ```bash
+   base64 -w0 google-services.json   # macOS は `base64 -i google-services.json`
+   ```
+3. GitHub → リポジトリ → Settings → Secrets and variables → Actions →
+   **`GOOGLE_SERVICES_JSON_BASE64`** という名前で上記出力を貼り付けて保存。
+4. 以降の CI ビルドは実 Firebase 設定で APK を生成する。
+
 ### B) ローカル Android Studio でビルド
 
 Android Studio で本フォルダを開く → Build → Build APK(s)。
