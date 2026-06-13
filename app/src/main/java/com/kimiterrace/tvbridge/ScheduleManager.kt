@@ -19,9 +19,16 @@ object ScheduleManager {
     private const val TAG = "ScheduleManager"
     const val ACTION_ALARM_ON = "com.kimiterrace.tvbridge.ALARM_ON"
     const val ACTION_ALARM_OFF = "com.kimiterrace.tvbridge.ALARM_OFF"
+    // 始業前ウォームアップ: ON 時刻の少し前に常駐サービス/no-sleep 設定を蘇生させ、
+    // 夜間に劣化したプロセス状態を生徒登校前にリセットする（#6）。
+    const val ACTION_ALARM_WARMUP = "com.kimiterrace.tvbridge.ALARM_WARMUP"
 
     private const val REQ_ON = 1001
     private const val REQ_OFF = 1002
+    private const val REQ_WARMUP = 1003
+
+    /** ON 時刻の何分前にウォームアップを発火させるか。 */
+    private const val WARMUP_LEAD_MINUTES = 30
 
     fun rescheduleAll(context: Context) {
         val cfg = ScheduleConfig.load(context)
@@ -30,6 +37,7 @@ object ScheduleManager {
         // 既存アラームクリア
         am.cancel(buildPendingIntent(context, ACTION_ALARM_ON, REQ_ON))
         am.cancel(buildPendingIntent(context, ACTION_ALARM_OFF, REQ_OFF))
+        am.cancel(buildPendingIntent(context, ACTION_ALARM_WARMUP, REQ_WARMUP))
 
         if (!cfg.enabled) {
             Log.i(TAG, "schedule disabled, no alarms set")
@@ -42,6 +50,18 @@ object ScheduleManager {
 
         setExactAlarm(context, am, nextOn, ACTION_ALARM_ON, REQ_ON)
         setExactAlarm(context, am, nextOff, ACTION_ALARM_OFF, REQ_OFF)
+
+        // ウォームアップ = 次回 ON の WARMUP_LEAD_MINUTES 分前。
+        // 既に過ぎていたら（= 起動が ON 直前だった等）は予約せずスキップ。
+        val warmup = (nextOn.clone() as Calendar).apply {
+            add(Calendar.MINUTE, -WARMUP_LEAD_MINUTES)
+        }
+        if (warmup.after(now)) {
+            setExactAlarm(context, am, warmup, ACTION_ALARM_WARMUP, REQ_WARMUP)
+            Log.i(TAG, "next WARMUP = ${warmup.time}")
+        } else {
+            Log.i(TAG, "warmup window already passed, skipped")
+        }
 
         Log.i(TAG, "next ON  = ${nextOn.time}")
         Log.i(TAG, "next OFF = ${nextOff.time}")
