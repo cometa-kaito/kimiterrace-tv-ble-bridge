@@ -10,7 +10,9 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 /**
  * リモート設定のポーリング。
@@ -46,6 +48,13 @@ import java.util.concurrent.TimeUnit
  *
  * - config.* は値が変わったときだけ反映（不要な書き込み回避）
  * - commands.* は true なら 1 回だけ実行（version が同じなら再実行しない）
+ *
+ * ポーリング間隔（#5）:
+ * - 成功時: pollIntervalMs（既定 60 秒）を維持。
+ * - 失敗時: 上限付き指数バックオフ + ±20% ジッタ。ネットワーク断は短い上限で頻繁に再試行。
+ *
+ * TODO(#5 follow-up): v2 への能動的ヘルスハートビート（outbound health POST）は
+ * v2 側の受け口エンドポイントが必要なため本 APK では未実装。エンドポイント実装後に追加する。
  */
 class ConfigPoller(
     private val context: Context,
@@ -59,23 +68,69 @@ class ConfigPoller(
 
     init {
         scope.launch(Dispatchers.IO) {
-            // 起動直後にも一度叩く
-            try { pollOnce() } catch (_: Throwable) {}
+            // 連続失敗回数。成功で 0 に戻す。バックオフの指数に使う。
+            var failureStreak = 0
+            // 起動直後にも一度叩く（結果でバックオフ初期値を決める）
+            var lastResult = runCatching { pollOnce() }.getOrElse { e ->
+                if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
+            }
+            failureStreak = updateStreak(failureStreak, lastResult)
             while (true) {
-                delay(pollIntervalMs)
-                try {
+                // 成功時は steady-state（pollIntervalMs）。失敗時はバックオフ + ジッタ。
+                delay(nextDelayMs(failureStreak, lastResult))
+                lastResult = try {
                     pollOnce()
                 } catch (e: Throwable) {
                     Log.d(TAG, "poll skipped: ${e.javaClass.simpleName}: ${e.message}")
+                    if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
                 }
+                failureStreak = updateStreak(failureStreak, lastResult)
             }
         }
     }
 
-    private fun pollOnce() {
+    /** 成功なら連続失敗を 0 に、失敗なら +1（上限でクランプして桁あふれ回避）。 */
+    private fun updateStreak(current: Int, result: PollResult): Int =
+        if (result == PollResult.SUCCESS) 0 else (current + 1).coerceAtMost(MAX_STREAK)
+
+    /**
+     * 次回ポーリングまでの待機時間。
+     * - 直近が成功（streak=0）: steady-state の pollIntervalMs を維持。
+     * - 失敗継続: base = min(pollIntervalMs * 2^(streak-1), 上限) で頭打ちの指数バックオフ。
+     *   ・通常失敗（HTTP 4xx/5xx・parse 失敗）: 上限 = MAX_BACKOFF_MS（15分）。
+     *   ・NETWORK_LOSS（接続不可）: 復帰を早く拾うため上限 = NETWORK_LOSS_MAX_BACKOFF_MS（2分）に抑える。
+     * いずれも ±JITTER_RATIO のジッタを掛け、複数端末の同時再試行（thundering herd）を散らす。
+     */
+    private fun nextDelayMs(failureStreak: Int, lastResult: PollResult): Long {
+        if (failureStreak <= 0) return withJitter(pollIntervalMs)
+        val ceiling = if (lastResult == PollResult.NETWORK_LOSS) {
+            NETWORK_LOSS_MAX_BACKOFF_MS
+        } else {
+            MAX_BACKOFF_MS
+        }
+        val base = (pollIntervalMs.toDouble() * Math.pow(2.0, (failureStreak - 1).toDouble()))
+            .toLong()
+            .coerceAtMost(ceiling)
+        return withJitter(base)
+    }
+
+    /** ±JITTER_RATIO のランダムジッタを掛ける（下限 1 秒）。 */
+    private fun withJitter(baseMs: Long): Long {
+        val delta = (baseMs * JITTER_RATIO).toLong()
+        val low = (baseMs - delta).coerceAtLeast(1000L)
+        // until は low より必ず大きくする（Random.nextLong の from<until 制約）。
+        val until = (baseMs + delta + 1).coerceAtLeast(low + 1)
+        return Random.nextLong(low, until)
+    }
+
+    private enum class PollResult { SUCCESS, FAILURE, NETWORK_LOSS }
+
+    private fun pollOnce(): PollResult {
         val rawEndpoint = Config.configEndpoint(context)
         if (rawEndpoint.isBlank()) {
-            return  // 未設定なら何もしない（PoC 初期は config endpoint なしでも動作）
+            // 未設定なら何もしない（PoC 初期は config endpoint なしでも動作）。
+            // 設定待ちでバックオフを焚いても意味がないので「成功扱い」で steady-state を保つ。
+            return PollResult.SUCCESS
         }
 
         // device_id を query に追加（既にある場合は重複しないようマージ）
@@ -93,17 +148,20 @@ class ConfigPoller(
             if (t.isNotBlank()) "$endpoint&fcmToken=$t" else endpoint
         }
         val req = Request.Builder().url(endpointWithFcm).get().build()
+        // execute() は接続不可で IOException を投げる → 呼び出し側で NETWORK_LOSS 扱い。
         val resp = httpClient.newCall(req).execute()
-        resp.use { r ->
+        return resp.use { r ->
             if (!r.isSuccessful) {
                 Log.d(TAG, "endpoint returned ${r.code}")
-                return
+                return@use PollResult.FAILURE
             }
-            val body = r.body?.string() ?: return
+            val body = r.body?.string() ?: return@use PollResult.FAILURE
             try {
                 applyResponse(JSONObject(body))
+                PollResult.SUCCESS
             } catch (e: Throwable) {
                 Log.w(TAG, "parse failed", e)
+                PollResult.FAILURE
             }
         }
     }
@@ -204,6 +262,18 @@ class ConfigPoller(
 
     companion object {
         private const val TAG = "ConfigPoller"
-        const val DEFAULT_POLL_INTERVAL_MS: Long = 60_000L  // 1分
+        const val DEFAULT_POLL_INTERVAL_MS: Long = 60_000L  // 1分（成功時の steady-state）
+
+        // 失敗時の指数バックオフ上限（連続失敗が続いてもこれ以上は空けない）。
+        private const val MAX_BACKOFF_MS: Long = 15 * 60_000L   // 15分
+
+        // ネットワーク断時の上限（短め）。復帰検知を早めるため通常失敗より頻繁に再試行する。
+        private const val NETWORK_LOSS_MAX_BACKOFF_MS: Long = 2 * 60_000L   // 2分
+
+        // 失敗連続回数の上限クランプ（2^streak の桁あふれ防止。実害は上限到達で頭打ち）。
+        private const val MAX_STREAK: Int = 16
+
+        // ジッタ比率（±20%）。複数 TV の同時再試行を散らす。
+        private const val JITTER_RATIO: Double = 0.20
     }
 }
