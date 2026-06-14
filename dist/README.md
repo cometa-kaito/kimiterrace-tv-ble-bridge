@@ -27,7 +27,7 @@ GitHub Actions でビルド済の APK と、Google TV へのインストール�
 6. Google TV のアプリ一覧から **「キミテラス TV ブリッジ」** を起動
 7. **Webhook URL** を入力：
    ```
-   https://www.school-signage.net/api/switchbot-webhook?key=0khL1mUcvIYYEowrO-Z1CuZQGIyMYHerkb30uFuByl0
+   https://www.school-signage.net/api/switchbot-webhook?key=<SWITCHBOT_WEBHOOK_SECRET>
    ```
 8. **▶ 開始 / 再起動** → 権限を全て許可
 9. 状態が **scanning** になれば完了。サイネージ（TVBro）に戻して常駐運用

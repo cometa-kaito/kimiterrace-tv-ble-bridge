@@ -21,12 +21,16 @@ class BootReceiver : BroadcastReceiver() {
             Log.w(TAG, "schedule reschedule failed on boot", e)
         }
 
-        // Webhook URL が未設定なら BLE サービスは起動しない（初期セットアップが必要）
-        if (Config.webhookUrl(context).isBlank()) {
-            Log.w(TAG, "webhook_url not set, skipping BleService autostart")
-            return
+        // 再起動で戻る no-sleep 設定（screen_off_timeout / sleep_timeout / screensaver）を毎回適用し直す
+        try {
+            KeepAwakeManager.applyNoSleepSettings(context)
+        } catch (e: Throwable) {
+            Log.w(TAG, "applyNoSleepSettings failed on boot", e)
         }
 
+        // ConfigPoller（設定/死活/スケジュール ポーリング）は BleService が常駐して回す。
+        // webhook_url（センサ用）の有無に関係なく必要なので、ここで必ず BleService を起動する。
+        // （旧実装は webhook 未設定だと起動せず＝サイネージ専用運用で死活/スケジュール/設定syncが止まっていた）
         val svc = Intent(context, BleService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             context.startForegroundService(svc)
@@ -34,20 +38,9 @@ class BootReceiver : BroadcastReceiver() {
             context.startService(svc)
         }
 
-        // 起動時点が OFF 期間内なら即時黒画面表示
-        val cfg = ScheduleConfig.load(context)
-        if (cfg.enabled && cfg.isCurrentlyInOffPeriod(java.util.Calendar.getInstance())) {
-            context.startActivity(
-                Intent(context, BlackScreenActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        } else if (Config.autoLaunchSignage(context) && Config.signageUrl(context).isNotBlank()) {
-            // OFF 期間外で signage 自動起動が有効ならサイネージを開く
-            context.startActivity(
-                Intent(context, SignageActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            )
-        }
+        // 起動直後の画面状態を現在時刻に合わせる
+        //（OFF 期間→黒画面 / ON 期間→サイネージ。判定は ScheduleManager に一元化）
+        ScheduleManager.applyCurrentState(context)
     }
 
     companion object {

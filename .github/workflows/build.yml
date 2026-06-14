@@ -35,6 +35,27 @@ jobs:
       - name: Generate Gradle Wrapper (one-shot)
         run: gradle wrapper --gradle-version 8.7
 
+      # google-services プラグインは app/google-services.json を必須とするが、
+      # 同ファイルは .gitignore 済み（実 Firebase 鍵を repo に焼かないため）。
+      # ・本番 FCM を使うなら: GitHub Secret `GOOGLE_SERVICES_JSON_BASE64`
+      #   （`base64 -w0 app/google-services.json` の出力）を設定 → それを復号して配置。
+      # ・Secret 未設定でも CI が落ちないよう、リポジトリ同梱の構造的に妥当なプレースホルダ
+      #   （app/google-services.json.ci-placeholder, 値は明らかにダミー）をコピーする。
+      #   これでビルドは通るが、その APK では FCM 受信は機能しない。
+      - name: Materialize google-services.json
+        env:
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON_BASE64" ]; then
+            echo "Using GOOGLE_SERVICES_JSON_BASE64 secret (real Firebase config)."
+            echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > app/google-services.json
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_BASE64 secret not set. Using PLACEHOLDER google-services.json so the build compiles. FCM remote-wake will NOT work in this APK. Set the secret for production FCM builds."
+            cp app/google-services.json.ci-placeholder app/google-services.json
+          fi
+          echo "--- google-services.json (sanity: keys only) ---"
+          grep -E '"(project_id|package_name)"' app/google-services.json || true
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 

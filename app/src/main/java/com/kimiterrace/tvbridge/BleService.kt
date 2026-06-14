@@ -11,6 +11,7 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -19,9 +20,12 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * BLE スキャン常駐 Foreground Service。
@@ -80,12 +84,19 @@ class BleService : Service() {
         val btManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = btManager.adapter
 
-        // Wake lock
+        // Wake lock（CPU を起こし続けるだけ。画面 ON 維持は別途 KeepAwakeManager が担う）
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TVBleBridge::scan").apply {
             setReferenceCounted(false)
             acquire()
         }
+
+        // 画面オフ・スリープ・スクリーンセーバを無効化（権限があれば。再起動 revert 対策で常駐中も再適用）
+        KeepAwakeManager.applyNoSleepSettings(applicationContext)
+        // Device Owner なら lock task（キオスク）許可リストへ自分を登録しておく
+        //（SignageActivity.startLockTask の前提。Device Owner でなければ no-op）
+        PowerController.allowLockTaskSelf(applicationContext)
+        startKeepAwakeLoop()
 
         // Uploader
         uploader = Uploader(
@@ -102,11 +113,54 @@ class BleService : Service() {
 
         Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${webhookUrl.take(60)}...")
 
+        // FCM トークンを取得→保存（ConfigPoller が次回ポーリングで v2 へ報告＝遠隔起動プッシュの宛先）。
+        runCatching {
+            com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                .addOnSuccessListener { Config.setFcmToken(applicationContext, it) }
+        }.onFailure { Log.d(TAG, "fcm token fetch skipped: ${it.message}") }
+
         startScan()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         return START_STICKY  // 殺されたら復活
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // ランチャー等からタスクをスワイプ除去されても常駐を維持するため自分を再起動する
+        try {
+            val restart = Intent(applicationContext, BleService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                applicationContext.startForegroundService(restart)
+            } else {
+                applicationContext.startService(restart)
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "onTaskRemoved restart failed: ${e.message}")
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * 常駐キープアライブ。60 秒ごとに:
+     *  - ON 時間帯にサイネージが前面から外れていれば前面へ戻す（FLAG_KEEP_SCREEN_ON 再付与）
+     *  - 一定間隔で no-sleep 設定を再適用（実行中に設定が戻された場合の保険）
+     */
+    private fun startKeepAwakeLoop() {
+        scope.launch(Dispatchers.Default) {
+            var ticks = 0
+            while (true) {
+                delay(KEEP_AWAKE_INTERVAL_MS)
+                try {
+                    KeepAwakeManager.reassertForegroundIfNeeded(applicationContext)
+                    if (++ticks % SETTINGS_REAPPLY_EVERY_TICKS == 0) {
+                        KeepAwakeManager.applyNoSleepSettings(applicationContext)
+                    }
+                } catch (e: Throwable) {
+                    Log.d(TAG, "keep-awake tick skipped: ${e.message}")
+                }
+            }
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -240,9 +294,30 @@ class BleService : Service() {
     )
 
     companion object {
+        /**
+         * BleService(ConfigPoller=死活/設定ポーリング + ScheduleManager のホスト)を起動し直す。
+         * 冪等: 生きていれば onStartCommand(START_STICKY) が再呼び出しされるだけ、死んでいれば復活する。
+         * 自己回復の単一入口（ScheduleAlarmReceiver / BootReceiver / SignageActivity の JS ブリッジから呼ぶ）。
+         */
+        fun ensureRunning(context: Context) {
+            try {
+                val svc = Intent(context, BleService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(svc)
+                } else {
+                    context.startService(svc)
+                }
+            } catch (e: Throwable) {
+                Log.w(TAG, "ensureRunning failed: ${e.message}")
+            }
+        }
+
         private const val TAG = "BleService"
         private const val CHANNEL_ID = "tv_ble_bridge"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_STATUS_UPDATED = "com.kimiterrace.tvbridge.STATUS_UPDATED"
+
+        private const val KEEP_AWAKE_INTERVAL_MS = 60_000L      // 前面チェック間隔（1分）
+        private const val SETTINGS_REAPPLY_EVERY_TICKS = 15     // no-sleep 設定の再適用間隔（≒15分）
     }
 }

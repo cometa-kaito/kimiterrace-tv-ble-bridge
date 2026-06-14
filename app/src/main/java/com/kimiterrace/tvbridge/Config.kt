@@ -26,6 +26,7 @@ object Config {
     private const val KEY_DEPARTMENT_ID = "department_id"
     private const val KEY_CLASS_ID = "class_id"
     private const val KEY_DEVICE_LABEL = "device_label"
+    private const val KEY_FCM_TOKEN = "fcm_token"
 
     fun targetMac(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -87,9 +88,16 @@ object Config {
 
     // ---------- リモート設定エンドポイント ----------
 
+    /**
+     * リモート設定ポーリング先。
+     * 既定は v2（GCP）の LP 互換エンドポイント。
+     * 秘密鍵はソースに焼かないため、プロビジョニングで `?key=<V2_TV_POLL_SECRET>` を含む
+     * 完全な URL を prefs に書き込む（[[dist/provision-googletv.md]] §5 / SAFE FALLBACK）。
+     * key 無しの既定でも GET は飛ぶが、サーバ側で 401 等になり実害なく次周期へ。
+     */
     fun configEndpoint(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return p.getString(KEY_CONFIG_ENDPOINT, "")!!
+        return p.getString(KEY_CONFIG_ENDPOINT, BuildConfig.DEFAULT_CONFIG_ENDPOINT)!!
     }
 
     fun setConfigEndpoint(context: Context, url: String) {
@@ -163,6 +171,17 @@ object Config {
     fun setDeviceLabel(context: Context, label: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
             putString(KEY_DEVICE_LABEL, label)
+        }
+    }
+
+    // ---------- FCM トークン（遠隔起動プッシュの宛先。ConfigPoller が v2 へ報告） ----------
+
+    fun fcmToken(context: Context): String =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_FCM_TOKEN, "") ?: ""
+
+    fun setFcmToken(context: Context, token: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_FCM_TOKEN, token)
         }
     }
 }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Device Owner / Device Admin のポリシー宣言。
+  - force-lock: lockNow() による画面ロック（＝バックライト OFF）に必須。
+  - watch-login: ログイン失敗監視（最小ポリシーとして付与）。
+  lock task（キオスク）は Device Owner であれば追加のポリシー宣言なしで使える。
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+        <watch-login />
+    </uses-policies>
+</device-admin>

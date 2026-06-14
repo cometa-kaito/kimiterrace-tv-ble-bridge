@@ -13,6 +13,7 @@ import android.util.Log
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -78,12 +79,22 @@ class SignageActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 画面常時 ON ＋ フルスクリーン flag
+        // 画面常時 ON ＋ 点灯 ＋ ロック画面上に表示 ＋ フルスクリーン flag
+        // FLAG_TURN_SCREEN_ON: 起動時にバックライトを点ける（朝 ON / wake からの復帰で点灯）
         window.addFlags(
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_FULLSCREEN or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
         )
+
+        // API 27+ の新 API（FLAG_* の後継）。lockNow 後でも画面を起こして前面表示するため。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            runCatching {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            }
+        }
 
         // ルートビューを黒地で構築
         val root = FrameLayout(this).apply {
@@ -150,6 +161,11 @@ class SignageActivity : AppCompatActivity() {
         wv.isFocusable = true
         wv.isFocusableInTouchMode = true
 
+        // 遠隔起動 / 自己回復チャネル: 裏方サービス(BleService)が死んでも、前面で生存する WebView から
+        // 蘇生できる。signage ページ(v2・自社ドメインのみ読込・外部ナビは shouldOverrideUrlLoading で遮断)が
+        // 読み込み毎に window.AndroidKiosk.ensureService() を呼ぶ想定。
+        wv.addJavascriptInterface(KioskBridge(applicationContext), "AndroidKiosk")
+
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
@@ -179,6 +195,18 @@ class SignageActivity : AppCompatActivity() {
             }
         }
         wv.webChromeClient = WebChromeClient()
+    }
+
+    /**
+     * WebView から呼べる遠隔/自己回復ブリッジ。WebView は裏方サービスが死んでも前面で生き続けるため、
+     * ここから BleService を起動し直せる。`@JavascriptInterface` は信頼ページ(自社 signage)のみが呼ぶ
+     * （WebView は signage_url=app.school-signage.net のみ読込・外部ナビ遮断）。露出は ensureService のみ。
+     */
+    private class KioskBridge(private val appContext: Context) {
+        @JavascriptInterface
+        fun ensureService() {
+            BleService.ensureRunning(appContext)
+        }
     }
 
     private fun safeReload() {
@@ -214,9 +242,39 @@ class SignageActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Device Owner ならキオスク（lock task）を開始してホーム/戻るによる離脱を抑止する。
+     *
+     * 防御的:
+     *  - Device Owner でなければ何もしない（開発機を lock task で固めてブリックさせない）。
+     *  - 既に lock task 中なら二重開始しない。
+     *  - 例外は握りつぶす（非対応・権限不足でクラッシュさせない）。
+     */
+    private fun maybeStartLockTask() {
+        runCatching {
+            if (!PowerController.isDeviceOwner(this)) return  // 開発機を固めない
+            // 念のため許可リストへ自分を登録（Device Owner のみ有効）
+            PowerController.allowLockTaskSelf(this)
+
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val alreadyLocked = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.lockTaskModeState != android.app.ActivityManager.LOCK_TASK_MODE_NONE
+            } else {
+                @Suppress("DEPRECATION")
+                am.isInLockTaskMode
+            }
+            if (!alreadyLocked) {
+                startLockTask()
+                Log.i(TAG, "lock task started (kiosk)")
+            }
+        }.onFailure { Log.w(TAG, "startLockTask skipped: ${it.message}") }
+    }
+
     override fun onResume() {
         super.onResume()
+        isForeground = true
         enterImmersiveMode()
+        maybeStartLockTask()
 
         val filter = IntentFilter().apply {
             addAction(ACTION_RELOAD)
@@ -239,6 +297,7 @@ class SignageActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        isForeground = false
         try { unregisterReceiver(controlReceiver) } catch (_: Throwable) {}
         super.onPause()
     }
@@ -268,6 +327,11 @@ class SignageActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "SignageActivity"
         private const val WATCHDOG_INTERVAL_MS = 3_600_000L  // 1時間ごとに自動リロード
+
+        /** サイネージが前面で可視か。KeepAwakeManager が「前面取りこぼし」判定に使う。 */
+        @JvmStatic
+        @Volatile
+        var isForeground: Boolean = false
 
         const val ACTION_RELOAD = "com.kimiterrace.tvbridge.SIGNAGE_RELOAD"
         const val ACTION_UPDATE_URL = "com.kimiterrace.tvbridge.SIGNAGE_UPDATE_URL"

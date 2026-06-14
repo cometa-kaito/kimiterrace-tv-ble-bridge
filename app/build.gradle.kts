@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -18,6 +19,9 @@ android {
         // BuildConfig fields are referenced from BuildConfig (Kotlin).
         buildConfigField("String", "DEFAULT_TARGET_MAC", "\"DC:A5:B3:C2:98:D7\"")
         buildConfigField("String", "DEFAULT_WEBHOOK_URL", "\"https://www.school-signage.net/api/switchbot-webhook\"")
+        // v2 バックエンド（GCP）の TV ポーリングエンドポイント（LP 互換レスポンス）。
+        // 秘密鍵（key）はソースに焼かない。プロビジョニング時に `?key=<V2_TV_POLL_SECRET>` を付与する。
+        buildConfigField("String", "DEFAULT_CONFIG_ENDPOINT", "\"https://app.school-signage.net/api/tv/lp-config\"")
     }
 
     buildTypes {
@@ -57,4 +61,8 @@ dependencies {
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+
+    // FCM: v2 が 🔴 検知時に端末を遠隔起動するための高優先度プッシュ受信（Doze 貫通）。
+    implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
+    implementation("com.google.firebase:firebase-messaging")
 }

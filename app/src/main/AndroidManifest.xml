@@ -40,6 +40,20 @@
     <!-- Wakelock (CPU をスリープさせない) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      画面オフ/スリープ/スクリーンセーバを OS レベルで無効化するため。
+      signature|privileged|development 権限なので、一度きりの ADB で付与して使う（runbook §4.6）:
+        adb shell pm grant com.kimiterrace.tvbridge android.permission.WRITE_SECURE_SETTINGS
+        adb shell appops set com.kimiterrace.tvbridge WRITE_SETTINGS allow
+      未付与なら KeepAwakeManager は no-op（前面再アサート等の他防御に委ねる）。
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission
+        android:name="android.permission.WRITE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
     <!-- 正確なアラーム（スケジュール機能用） -->
     <uses-permission
         android:name="android.permission.SCHEDULE_EXACT_ALARM"
@@ -84,6 +98,9 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+                <!-- no-DOキオスク: HOMEランチャー化（HOME押下でサイネージへ戻す） -->
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
 
@@ -93,6 +110,15 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- FCM 受信（遠隔起動）: v2 が 🔴 検知時に wake プッシュ → BleService.ensureRunning -->
+        <service
+            android:name=".FcmService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
 
         <!-- スケジュールで OFF 時間中に表示する全画面黒 Activity -->
         <activity
@@ -137,6 +163,23 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Device Owner / 端末管理者レシーバ。
+          プロビジョニング時に `dpm set-device-owner …/.TvDeviceAdminReceiver` で端末所有者へ昇格する。
+          所有者になると lockNow()（夜間の画面 OFF）と lock task（キオスク）が PC 不要で使える。
+        -->
+        <receiver
+            android:name=".TvDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
     </application>

@@ -8,16 +8,21 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 
 /**
  * OFF 時間中、画面全体を真っ黒に覆う最前面 Activity。
  *
+ * 位置付けの変更（2026-06-08）:
+ *  夜間の本命は PowerController.screenOff()（Device Owner の lockNow＝バックライト OFF）。
+ *  この黒画面は **lockNow が効かない機種向けの「見た目」フォールバック** に降格した。
+ *  したがって FLAG_KEEP_SCREEN_ON は付けない（付けると lockNow / 画面 OFF と綱引きになり、
+ *  バックライトが点いたままになる）。明るさ 0 の黒オーバーレイのみを担う。
+ *
  * - 全画面 + システムバー非表示
  * - スクリーン明るさ 0
- * - ボリューム制御は別途検討（最初は黒画面のみ）
+ * - FLAG_KEEP_SCREEN_ON は付けない（消灯を妨げないため）
  * - ACTION_DISMISS broadcast で finish
  */
 class BlackScreenActivity : AppCompatActivity() {
@@ -59,8 +64,10 @@ class BlackScreenActivity : AppCompatActivity() {
         lp.screenBrightness = 0.0f
         window.attributes = lp
 
-        // 画面 OFF にならないように（OFF 時間中は黒画面を維持したい）
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 注意: FLAG_KEEP_SCREEN_ON は付けない。
+        // 夜間消灯の本命は PowerController.screenOff()（lockNow による画面 OFF）。
+        // ここで画面 ON を維持すると lockNow と綱引きになりバックライトが消えないため、
+        // この Activity は「黒オーバーレイ（見た目 OFF）」のフォールバックに徹する。
 
         // dismiss receiver 登録
         val filter = IntentFilter(ACTION_DISMISS)
