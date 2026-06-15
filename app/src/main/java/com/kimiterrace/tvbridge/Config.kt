@@ -27,6 +27,12 @@ object Config {
     private const val KEY_CLASS_ID = "class_id"
     private const val KEY_DEVICE_LABEL = "device_label"
     private const val KEY_FCM_TOKEN = "fcm_token"
+    // 夜間 OFF の方式（復帰不能スリープ対策）。値は overlay / lock のいずれか。
+    private const val KEY_NIGHT_OFF_MODE = "night_off_mode"
+
+    // 夜間 OFF の方式の定数。
+    const val NIGHT_OFF_MODE_OVERLAY = "overlay"  // 既定: 擬似黒（KEEP_SCREEN_ON）で朝復帰を保証
+    const val NIGHT_OFF_MODE_LOCK = "lock"        // 真の消灯（lockNow）。復帰確認済み機種向け
 
     fun targetMac(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -83,6 +89,33 @@ object Config {
     fun setAutoLaunchSignage(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
             putBoolean(KEY_AUTOLAUNCH_SIGNAGE, enabled)
+        }
+    }
+
+    // ---------- 夜間 OFF の方式（復帰不能スリープ対策） ----------
+
+    /**
+     * 夜間 OFF の方式。
+     * - "overlay"（既定）: 黒オーバーレイ(明るさ0)＋FLAG_KEEP_SCREEN_ON でパネルを起こしたまま擬似黒にする。
+     *   lockNow を使わないので朝 ON は「オーバーレイを消すだけ」＝パネル再点灯不要で必ず復帰する。
+     *   no-sleep 設定が効かない／firmware が深いスリープに落とすメーカーでも朝戻る、最も安全な既定。
+     * - "lock": Device Owner の lockNow() でバックライトごと消す（真の消灯）。復帰が確認できた機種向け。
+     *   復帰不能スリープに落ちるメーカーでは朝戻らないリスクがある。
+     * 未知の値は overlay 扱い（安全側）にフォールバックする。
+     */
+    fun nightOffMode(context: Context): String {
+        val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val v = p.getString(KEY_NIGHT_OFF_MODE, NIGHT_OFF_MODE_OVERLAY)
+        return if (v == NIGHT_OFF_MODE_LOCK) NIGHT_OFF_MODE_LOCK else NIGHT_OFF_MODE_OVERLAY
+    }
+
+    /** overlay（擬似黒・復帰優先）モードか。 */
+    fun isNightOffOverlay(context: Context): Boolean = nightOffMode(context) == NIGHT_OFF_MODE_OVERLAY
+
+    fun setNightOffMode(context: Context, mode: String) {
+        val normalized = if (mode == NIGHT_OFF_MODE_LOCK) NIGHT_OFF_MODE_LOCK else NIGHT_OFF_MODE_OVERLAY
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putString(KEY_NIGHT_OFF_MODE, normalized)
         }
     }
 

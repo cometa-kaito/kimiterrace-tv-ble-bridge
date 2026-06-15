@@ -14,6 +14,8 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -42,6 +44,12 @@ class BleService : Service() {
     private lateinit var uploader: Uploader
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // ネット復帰トリガ（県 WiFi 断→再接続時の自己回復）用
+    private var configPoller: ConfigPoller? = null
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile private var lastNetRecoveryMs: Long = 0L
 
     @Volatile private var targetMac: String = ""
     @Volatile private var lastMotion: Boolean? = null
@@ -106,10 +114,13 @@ class BleService : Service() {
         )
 
         // ConfigPoller — リモート設定を定期取得
-        ConfigPoller(
+        configPoller = ConfigPoller(
             context = applicationContext,
             scope = scope,
         )
+
+        // ネットワーク復帰を「復帰トリガ」として購読（県 WiFi 断→再接続時の自己回復）
+        registerNetworkCallback()
 
         Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${webhookUrl.take(60)}...")
 
@@ -163,11 +174,49 @@ class BleService : Service() {
         }
     }
 
+    /**
+     * ネットワーク復帰を「復帰トリガ」として購読する（ON/OFF スイッチにはしない）。
+     * 県 WiFi が深夜に切れて再接続した瞬間に自己回復させるのが狙い。
+     * 表示の ON/OFF はあくまで時刻スケジュールが正本で、ネット状態では切り替えない。
+     */
+    private fun registerNetworkCallback() {
+        runCatching {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            val cb = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    onNetworkRecovered()
+                }
+            }
+            cm.registerDefaultNetworkCallback(cb)
+            connectivityManager = cm
+            networkCallback = cb
+            Log.i(TAG, "network callback registered (recovery trigger)")
+        }.onFailure { Log.w(TAG, "registerNetworkCallback failed: ${it.message}") }
+    }
+
+    /**
+     * ネット復帰時の自己回復:
+     *  - no-sleep 設定を再適用（夜間に劣化した分の保険）
+     *  - 前面状態を再アサート（ON 時間帯はサイネージ前面／OFF 時間帯は黒を維持）
+     *  - 設定/コマンドを即時ポーリング（長時間断後の素早い再同期）
+     * onAvailable はフラッピングで多発し得るのでスロットルを掛ける。
+     */
+    private fun onNetworkRecovered() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - lastNetRecoveryMs < NET_RECOVERY_THROTTLE_MS) return
+        lastNetRecoveryMs = now
+        Log.i(TAG, "network recovered -> re-assert no-sleep + foreground + immediate poll")
+        runCatching { KeepAwakeManager.applyNoSleepSettings(applicationContext) }
+        runCatching { KeepAwakeManager.reassertForegroundIfNeeded(applicationContext) }
+        runCatching { configPoller?.pollNow() }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         Log.w(TAG, "BleService onDestroy")
         try { bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback) } catch (_: Throwable) {}
+        runCatching { networkCallback?.let { cb -> connectivityManager?.unregisterNetworkCallback(cb) } }
         wakeLock?.let { if (it.isHeld) it.release() }
         scope.cancel()
         supervisorJob.cancel()
@@ -319,5 +368,6 @@ class BleService : Service() {
 
         private const val KEEP_AWAKE_INTERVAL_MS = 60_000L      // 前面チェック間隔（1分）
         private const val SETTINGS_REAPPLY_EVERY_TICKS = 15     // no-sleep 設定の再適用間隔（≒15分）
+        private const val NET_RECOVERY_THROTTLE_MS = 20_000L    // ネット復帰トリガのフラッピング抑制（20秒）
     }
 }

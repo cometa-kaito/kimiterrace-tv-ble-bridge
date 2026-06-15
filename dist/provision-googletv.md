@@ -190,6 +190,28 @@ $inner = "mkdir -p shared_prefs; echo $b64 | base64 -d > shared_prefs/tv_ble_bri
 > 電源 OFF タイマーが効いていた）、`settings put` では消えない。**TV 設定 UI（タイマー/電源/省エネ）で
 > オフタイマー・スリープタイマーを必ず無効化**すること。これを忘れると夜間に箱ごと落ちて検知が止まる。
 
+### 6.1 no-sleep が実際に効いたか読み戻して確認（メーカー差の切り分け）
+
+`settings put` は機種によって**黙って無視される**（vendor がキーを持たない／権限が効かない）。put した値を読み戻し、
+効いていない機は夜間 OFF を擬似黒モード（`night_off_mode=overlay`、既定）で運用する。
+
+```powershell
+& $adb shell settings get system screen_off_timeout   # 期待: 2147483647
+& $adb shell settings get secure sleep_timeout         # 期待: -1
+& $adb shell settings get secure screensaver_enabled   # 期待: 0
+```
+
+- **期待値どおり** → `night_off_mode=lock`（真の消灯）でも復帰し得る。実機で「夜間→朝」の復帰を一度検証してから lock に。
+- **値が違う／反映されない** → そのメーカーは深いスリープに落ち得る。**`night_off_mode=overlay`（既定のまま）**で運用する。
+
+### 6.2 夜間 OFF の方式（`night_off_mode`）
+
+- 既定 **`overlay`**（擬似黒・復帰優先）。黒オーバーレイ＋`FLAG_KEEP_SCREEN_ON` でパネルを起こしたまま擬似黒にし、
+  朝 ON は「オーバーレイ解除」だけで**必ず復帰**する。不明メーカーでも朝戻る。代償はパネル常時点灯の微小電力と弱い発光のみ。
+- 真の消灯（lockNow でバックライト OFF）にしたい & 復帰確認済みの機だけ **`lock`** にする。切替は次のいずれか:
+  - MainActivity の「夜間OFFを擬似黒にする」チェックボックス（ON=overlay / OFF=lock）
+  - lp-config レスポンスの `config.night_off_mode`（`"overlay"` / `"lock"`、per-device で配信）
+
 ---
 
 ## 7. 起動

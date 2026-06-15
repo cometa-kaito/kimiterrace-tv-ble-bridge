@@ -55,6 +55,14 @@ object PowerController {
      * 端末本体は起きたまま（ポーリング継続）。CEC standby も補助的に試行。
      */
     fun screenOff(context: Context) {
+        // overlay モード（既定）: lockNow を使わず、黒オーバーレイ(明るさ0+FLAG_KEEP_SCREEN_ON)に委ねる。
+        // パネルを起こしたまま擬似黒にするので、朝 ON は「オーバーレイ解除」だけで必ず復帰する
+        //（lockNow が復帰不能スリープを誘発するメーカー対策。黒画面は applyCurrentState が前面化する）。
+        if (Config.isNightOffOverlay(context)) {
+            Log.i(TAG, "screenOff: overlay mode -> rely on BlackScreenActivity (keep-screen-on), lockNow skipped")
+            return
+        }
+
         val locked = runCatching {
             if (canLock(context)) {
                 dpm(context)?.lockNow()

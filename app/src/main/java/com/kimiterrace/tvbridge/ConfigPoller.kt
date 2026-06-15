@@ -59,7 +59,7 @@ import kotlin.random.Random
 class ConfigPoller(
     private val context: Context,
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) {
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
@@ -86,6 +86,17 @@ class ConfigPoller(
                 }
                 failureStreak = updateStreak(failureStreak, lastResult)
             }
+        }
+    }
+
+    /**
+     * 定期ループとは別に、いますぐ 1 回だけポーリングする（ネット復帰トリガ等から呼ぶ）。
+     * 長時間のネット断後の素早い再同期が目的。失敗は握りつぶす（次の定期ループが拾う）。
+     */
+    fun pollNow() {
+        scope.launch(Dispatchers.IO) {
+            runCatching { pollOnce() }
+                .onFailure { Log.d(TAG, "pollNow skipped: ${it.message}") }
         }
     }
 
@@ -228,6 +239,19 @@ class ConfigPoller(
                 // スケジュール変更を即時に画面へ反映（OFF時間帯のさなかの有効化でも黒画面化）
                 ScheduleManager.applyCurrentState(context)
                 Log.i(TAG, "schedule updated")
+            }
+        }
+
+        // 夜間 OFF の方式（overlay=擬似黒/復帰優先 ・ lock=真の消灯）。メーカーごとに per-device で切替可能。
+        // 既知の値のみ採用し、未知値・欠落・null("null") は無視する（既定 overlay のまま）。
+        cfg.optString("night_off_mode").takeIf {
+            it == Config.NIGHT_OFF_MODE_OVERLAY || it == Config.NIGHT_OFF_MODE_LOCK
+        }?.let { mode ->
+            if (mode != Config.nightOffMode(context)) {
+                Config.setNightOffMode(context, mode)
+                Log.i(TAG, "night_off_mode updated -> $mode")
+                // OFF 期間のさなかに切り替わっても即反映（黒の出し方＝KEEP_SCREEN_ON 有無が変わるため）
+                ScheduleManager.applyCurrentState(context)
             }
         }
     }

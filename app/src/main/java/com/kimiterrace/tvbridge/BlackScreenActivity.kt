@@ -8,6 +8,7 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
 
@@ -64,10 +65,15 @@ class BlackScreenActivity : AppCompatActivity() {
         lp.screenBrightness = 0.0f
         window.attributes = lp
 
-        // 注意: FLAG_KEEP_SCREEN_ON は付けない。
-        // 夜間消灯の本命は PowerController.screenOff()（lockNow による画面 OFF）。
-        // ここで画面 ON を維持すると lockNow と綱引きになりバックライトが消えないため、
-        // この Activity は「黒オーバーレイ（見た目 OFF）」のフォールバックに徹する。
+        // 夜間 OFF の方式で FLAG_KEEP_SCREEN_ON の扱いを変える:
+        //  - overlay モード（既定）: lockNow を使わない構成。ここでパネルを起こしたまま擬似黒にし、
+        //    朝 ON は「この Activity を finish するだけ」で確実に復帰させる
+        //    （no-sleep 設定が効かない／深いスリープに落ちるメーカーでも朝戻る）。
+        //  - lock モード: 夜間消灯の本命は PowerController.screenOff()（lockNow）。
+        //    ここで KEEP_SCREEN_ON を付けると lockNow と綱引きになるので付けない。
+        if (Config.isNightOffOverlay(this)) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
 
         // dismiss receiver 登録
         val filter = IntentFilter(ACTION_DISMISS)
