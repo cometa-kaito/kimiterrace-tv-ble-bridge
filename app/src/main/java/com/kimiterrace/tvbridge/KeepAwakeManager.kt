@@ -98,17 +98,10 @@ object KeepAwakeManager {
     fun reassertForegroundIfNeeded(context: Context) {
         val sched = ScheduleConfig.load(context)
         if (sched.isCurrentlyInOffPeriod(Calendar.getInstance())) {
-            // OFF 期間: サイネージが万一前面に出ていたら黒へ戻す（サイネージ再起動は決してしない）。
+            // OFF 期間: サイネージが万一前面に出ていたら OFF 状態へ戻す（サイネージ再起動は決してしない）。
+            // screenOff がモードに応じて overlay 起動 / lockNow を行うので、ここはそれに委ねる。
             if (SignageActivity.isForeground) {
-                Log.i(TAG, "signage foreground during OFF period -> re-assert OFF (black overlay)")
-                // 黒オーバーレイを前面化してサイネージを覆う（overlay/lock 両モード共通）。
-                runCatching {
-                    context.startActivity(
-                        Intent(context, BlackScreenActivity::class.java)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    )
-                }.onFailure { Log.w(TAG, "re-show black overlay failed: ${it.message}") }
-                // lock モードはバックライトも消す（overlay モードでは no-op）。
+                Log.i(TAG, "signage foreground during OFF period -> re-assert screenOff")
                 PowerController.screenOff(context)
             }
             return  // OFF は黒/消灯を維持（再起動禁止）

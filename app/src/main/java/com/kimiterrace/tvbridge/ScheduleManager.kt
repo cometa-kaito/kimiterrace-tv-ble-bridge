@@ -86,20 +86,24 @@ object ScheduleManager {
             return
         }
         if (cfg.isCurrentlyInOffPeriod(Calendar.getInstance())) {
-            context.startActivity(
-                Intent(context, BlackScreenActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            )
+            runCatching {
+                context.startActivity(
+                    Intent(context, BlackScreenActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                )
+            }.onFailure { Log.w(TAG, "applyCurrentState: black overlay launch failed (SYSTEM_ALERT_WINDOW 未付与?): ${it.message}") }
             Log.i(TAG, "applyCurrentState: OFF period -> black screen")
         } else {
             context.sendBroadcast(
                 Intent(BlackScreenActivity.ACTION_DISMISS).setPackage(context.packageName)
             )
             if (Config.autoLaunchSignage(context) && Config.signageUrl(context).isNotBlank()) {
-                context.startActivity(
-                    Intent(context, SignageActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
+                runCatching {
+                    context.startActivity(
+                        Intent(context, SignageActivity::class.java)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }.onFailure { Log.w(TAG, "applyCurrentState: signage launch failed (SYSTEM_ALERT_WINDOW 未付与?): ${it.message}") }
             }
             Log.i(TAG, "applyCurrentState: ON period -> dismiss black / show signage")
         }
