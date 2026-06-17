@@ -262,7 +262,9 @@ class ConfigPoller(
             // 誤った遠隔 config 1 つで全端末が真っ黒になるのを端末側 fail-safe で弾く（既存設定を維持）。
             if (newSched.enabled && newSched.daysMask == 0) {
                 Log.w(TAG, "ignored schedule with days_mask=0 (would blank 24/7)")
-            } else if (newSched != existing) {
+                return@let
+            }
+            if (newSched != existing) {
                 ScheduleConfig.save(context, newSched)
                 ScheduleManager.rescheduleAll(context)
                 // スケジュール変更を即時に画面へ反映（OFF時間帯のさなかの有効化でも黒画面化）

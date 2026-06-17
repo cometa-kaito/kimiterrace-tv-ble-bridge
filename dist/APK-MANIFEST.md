@@ -13,16 +13,23 @@
 - HEAD: `8de64d6`（`git log` で確認）
 - **ソースのコピーはこの1本のみ**（Desktop/Downloads/_archive/キミテラス-v2 を走査して確認済み 2026-06-17）。
 
-> ⚠ 2026-06-17 時点で **未コミット・未ビルドの端末側レジリエンス全面強化**あり（「一過性の事象で端末を永久死させない」）。
-> 過去の「NULL クラッシュ対策」は v2 **サーバ側**（lp-compat null→""、PR #855）のみで、**端末コードは未修正だった**。
-> 以下が初の端末側対策。**次ビルドに必ず全部含めること**:
-> 1. `BleService.startScan` / `Config.targetMac` — 無効 MAC（"NULL"/空/不正）で起動時クラッシュしない fail-safe。
-> 2. `BleService.onCreate` — ConfigPoller を最優先起動＋全初期化を独立 try 化（周辺初期化の例外で生命線を巻き込まない）。
-> 3. `Watchdog.kt`（新規）— AlarmManager 15分間隔の常駐ウォッチドッグ＋クラッシュ後の自動再起動アラーム。
-> 4. `TvBridgeApp.kt`（新規・Application）— 全スレッド未捕捉例外フックで「落ちる直前に蘇生アラーム」＝あらゆるクラッシュを自動復帰に縮退。
-> 5. `BootReceiver` — 起動処理を try 化＋ウォッチドッグ武装＋`MY_PACKAGE_REPLACED`（更新直後の再武装）。
+> ✅ 2026-06-17 **端末側レジリエンス全面強化を実装・コミット・ビルド済**（branch `feat/tv-resilience-hardening`）。
+> 過去の「NULL クラッシュ対策」は v2 **サーバ側**（lp-compat null→""、PR #855）のみで、**端末コードは未修正だった**＝再起動で再発し得た。本変更が初の端末側対策。
+> 「一過性の事象で端末を永久死させない」ための内容:
+> 1. 無効 MAC fail-safe（`BleService.startScan` ガード＋`Config.targetMac` 正規化）。
+> 2. `BleService.onCreate` を ConfigPoller 最優先＋全初期化 独立 try 化（周辺初期化の例外で生命線を巻き込まない）。
+> 3. **poll liveness 自己診断**：成功時刻を記録し、Watchdog が「20分無成功＝poller 停止」を検知→サービス強制再生成（`Config`/`ConfigPoller`/`Watchdog`/`BleService.forceRestart`）。
+> 4. `Watchdog.kt`（新規）AlarmManager 15分毎 + クラッシュ後 即時再起動アラーム。
+> 5. `KeepAliveWorker.kt`（新規・WorkManager）AlarmManager と独立した第2経路。
+> 6. `TvBridgeApp.kt`（新規 Application）全未捕捉例外→蘇生アラームで自動復帰に縮退。
+> 7. ConfigPoller ループ堅牢化（例外で止めない/Cancellation 再送出）＋OkHttp `callTimeout`＋`days_mask=0` 誤config 弾き。
+> 8. `BootReceiver`/Manifest 堅牢化＋`MY_PACKAGE_REPLACED` 再武装。`snapshotStatus`/WebView `onRenderProcessGone` のクラッシュ穴封鎖。
 >
-> ビルド前提: 本 repo に gradle wrapper(jar/スクリプト)が無い。Android Studio でビルドするか wrapper を復元して `gradlew assembleDebug`。既定 `java` は 8 なので JDK 17/21 を使うこと。
+> **端末側で原理的に塞げない残件**＝stopped-state（force-stop/初回未起動）。OS が boot/alarm/FCM/Work を全ブロック→ Device Owner 化＋サーバ死活監視＋現地リブートで担保（運用側）。
+>
+> ビルド方法（実績）: 本 repo に gradle wrapper(jar/スクリプト)が無いので、キャッシュの gradle を直接利用:
+> `JAVA_HOME=<JDK21> <…>/gradle-8.9/bin/gradle -p <repo> -Pandroid.overridePathCheck=true assembleDebug`
+> （非ASCIIパス override は `gradle.properties` にも恒久追記済。既定 `java` は 8 なので JDK 17/21 必須。Android Studio でも可。）
 
 ---
 
@@ -32,7 +39,8 @@
 
 | sha256(先頭16) | size(byte) | build日 | ファイル | 状態 |
 |---|---|---|---|---|
-| `ab4a01db5a37b2a2` | 7,304,030 | 2026-06-15 | `dist/v2-build/tv-ble-bridge-night-off-20260615.apk` | **最新・現場に入っている想定** |
+| `48ac8ebf1b509b63` | 7,570,934 | 2026-06-17 | `dist/v2-build/tv-ble-bridge-resilience-20260617.apk` | **最新・全面堅牢化版（次に現地 flash 推奨）。未配布** |
+| `ab4a01db5a37b2a2` | 7,304,030 | 2026-06-15 | `dist/v2-build/tv-ble-bridge-night-off-20260615.apk` | 前版（現場に入っている想定） |
 | `64e431ccbda9fbe7` | 7,181,874 | 2026-06-11 | `dist/v2-build/tv-ble-bridge-fcm-20260611.apk` | 旧（FCM 遠隔起動 導入版） |
 | `e50aba66eb0beed6` | 6,454,118 | 2026-06-08 | `dist/v2-build/tv-ble-bridge-v2migration-20260608.apk` | 旧（v2 移行 初版。旧名 `tv-ble-bridge-debug.apk` を版数名へ改名） |
 
