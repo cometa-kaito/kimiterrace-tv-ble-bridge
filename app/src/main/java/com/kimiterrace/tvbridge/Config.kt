@@ -1,5 +1,6 @@
 package com.kimiterrace.tvbridge
 
+import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import androidx.core.content.edit
 
@@ -36,7 +37,13 @@ object Config {
 
     fun targetMac(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        return p.getString(KEY_TARGET_MAC, BuildConfig.DEFAULT_TARGET_MAC)!!.uppercase()
+        val raw = p.getString(KEY_TARGET_MAC, BuildConfig.DEFAULT_TARGET_MAC)!!.uppercase()
+        // 旧 lp-config の null→optString "null" 化や手動設定ミスで "NULL"/空/不正文字列が prefs に焼かれる
+        // ことがある。無効な MAC をそのまま返すと BleService の ScanFilter.setDeviceAddress が
+        // IllegalArgumentException を投げ起動時クラッシュの火種になる。無効値は既定 MAC に倒し、
+        // 呼び出し側が常に有効な MAC を得られるようにする（fail-safe・二重防御の片側）。
+        return if (BluetoothAdapter.checkBluetoothAddress(raw)) raw
+        else BuildConfig.DEFAULT_TARGET_MAC.uppercase()
     }
 
     fun setTargetMac(context: Context, mac: String) {
@@ -216,5 +223,26 @@ object Config {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
             putString(KEY_FCM_TOKEN, token)
         }
+    }
+
+    // ---------- ポーリング死活の自己診断（liveness watchdog 用） ----------
+
+    private const val KEY_LAST_POLL_OK_MS = "last_poll_ok_ms"
+    private const val KEY_LAST_FORCE_RESTART_MS = "last_force_restart_ms"
+
+    /** 直近で lp-config ポーリングに成功した壁時計時刻(ms)。0=未成功。Watchdog の staleness 判定に使う。 */
+    fun lastPollSuccessMs(context: Context): Long =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_LAST_POLL_OK_MS, 0L)
+
+    fun setLastPollSuccessMs(context: Context, ms: Long) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putLong(KEY_LAST_POLL_OK_MS, ms) }
+    }
+
+    /** 直近で Watchdog が強制再起動を実行した壁時計時刻(ms)。再起動ループ抑止のクールダウン用。 */
+    fun lastForceRestartMs(context: Context): Long =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_LAST_FORCE_RESTART_MS, 0L)
+
+    fun setLastForceRestartMs(context: Context, ms: Long) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putLong(KEY_LAST_FORCE_RESTART_MS, ms) }
     }
 }

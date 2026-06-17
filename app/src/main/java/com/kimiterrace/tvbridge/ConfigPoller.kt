@@ -3,6 +3,7 @@ package com.kimiterrace.tvbridge
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -64,6 +65,10 @@ class ConfigPoller(
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        // 全体上限。connect/read 個別 timeout がリセットされ続ける slowloris 的ハングを断ち切り、
+        // 1 回の poll が無限延伸して steady-state ループを止めるのを防ぐ。
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
     init {
@@ -72,20 +77,40 @@ class ConfigPoller(
             var failureStreak = 0
             // 起動直後にも一度叩く（結果でバックオフ初期値を決める）
             var lastResult = runCatching { pollOnce() }.getOrElse { e ->
+                if (e is CancellationException) throw e
                 if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
             }
+            recordIfSuccess(lastResult)
             failureStreak = updateStreak(failureStreak, lastResult)
             while (true) {
-                // 成功時は steady-state（pollIntervalMs）。失敗時はバックオフ + ジッタ。
-                delay(nextDelayMs(failureStreak, lastResult))
-                lastResult = try {
-                    pollOnce()
+                // ループ本体全体を握る。delay / バックオフ計算 / pollOnce のいずれで想定外例外が出ても
+                // ループ自体は絶対に抜けない（= poller スレッドが死んで永久無音化するのを防ぐ）。
+                // ただし CancellationException は coroutine の正常停止信号なので必ず再送出する。
+                try {
+                    // 成功時は steady-state（pollIntervalMs）。失敗時はバックオフ + ジッタ。
+                    delay(nextDelayMs(failureStreak, lastResult))
+                    lastResult = try {
+                        pollOnce()
+                    } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
+                        Log.d(TAG, "poll skipped: ${e.javaClass.simpleName}: ${e.message}")
+                        if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
+                    }
+                    recordIfSuccess(lastResult)
+                    failureStreak = updateStreak(failureStreak, lastResult)
+                } catch (c: CancellationException) {
+                    throw c
                 } catch (e: Throwable) {
-                    Log.d(TAG, "poll skipped: ${e.javaClass.simpleName}: ${e.message}")
-                    if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
+                    Log.w(TAG, "poll loop iteration error (continuing)", e)
                 }
-                failureStreak = updateStreak(failureStreak, lastResult)
             }
+        }
+    }
+
+    /** 成功時に「最後に生きていた時刻」を永続化する（Watchdog の poll liveness 判定の根拠）。 */
+    private fun recordIfSuccess(result: PollResult) {
+        if (result == PollResult.SUCCESS) {
+            runCatching { Config.setLastPollSuccessMs(context, System.currentTimeMillis()) }
         }
     }
 
@@ -233,7 +258,11 @@ class ConfigPoller(
                 offMinute = sched.optInt("off_minute", existing.offMinute),
                 daysMask = sched.optInt("days_mask", existing.daysMask),
             )
-            if (newSched != existing) {
+            // サニティ: enabled なのに days_mask=0（全曜日非対象）は「24/7 黒画面」になる誤設定。
+            // 誤った遠隔 config 1 つで全端末が真っ黒になるのを端末側 fail-safe で弾く（既存設定を維持）。
+            if (newSched.enabled && newSched.daysMask == 0) {
+                Log.w(TAG, "ignored schedule with days_mask=0 (would blank 24/7)")
+            } else if (newSched != existing) {
                 ScheduleConfig.save(context, newSched)
                 ScheduleManager.rescheduleAll(context)
                 // スケジュール変更を即時に画面へ反映（OFF時間帯のさなかの有効化でも黒画面化）

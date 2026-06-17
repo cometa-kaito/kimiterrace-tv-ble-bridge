@@ -193,6 +193,22 @@ class SignageActivity : AppCompatActivity() {
                     statusText.visibility = View.VISIBLE
                 }
             }
+
+            // WebView のレンダラプロセスが落ちた（OOM 等）場合の回復。未処理だと白画面固着、または
+            // Activity ごとクラッシュになる。true を返してシステムに kill させず、死んだ WebView を破棄して
+            // Activity を作り直す（同じ WebView を使い続けると以後ずっと白画面のまま）。
+            override fun onRenderProcessGone(
+                view: WebView?,
+                detail: android.webkit.RenderProcessGoneDetail?,
+            ): Boolean {
+                Log.w(TAG, "WebView renderer gone (crashed=${detail?.didCrash()}) -> recreate activity")
+                runCatching {
+                    (webView.parent as? android.view.ViewGroup)?.removeView(webView)
+                    webView.destroy()
+                }
+                runCatching { recreate() }
+                return true
+            }
         }
         wv.webChromeClient = WebChromeClient()
     }

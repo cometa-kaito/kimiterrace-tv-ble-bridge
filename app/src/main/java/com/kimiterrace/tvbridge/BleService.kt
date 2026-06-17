@@ -80,57 +80,74 @@ class BleService : Service() {
         super.onCreate()
         BleServiceHandle.current = this
 
-        // Foreground 開始（5秒以内に startForeground しないと ANR）
-        startForeground(NOTIFICATION_ID, buildNotification("starting up"), foregroundServiceType())
-
-        // 設定取得
-        targetMac = Config.targetMac(this)
-        lastMotion = Config.lastMotion(this)
-        val webhookUrl = Config.webhookUrl(this)
-
-        // BLE アダプタ
-        val btManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
-        bluetoothAdapter = btManager.adapter
-
-        // Wake lock（CPU を起こし続けるだけ。画面 ON 維持は別途 KeepAwakeManager が担う）
-        val pm = getSystemService(POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TVBleBridge::scan").apply {
-            setReferenceCounted(false)
-            acquire()
+        // Foreground 開始（5秒以内に startForeground しないと ANR）。失敗しても以降の生命線は止めない。
+        runCatching {
+            startForeground(NOTIFICATION_ID, buildNotification("starting up"), foregroundServiceType())
+        }.onFailure { first ->
+            // FGS 型(connectedDevice)に必要な前提(権限/起動文脈)が欠けて失敗した場合、型なしで再試行する。
+            // startForegroundService で開始された以上、5 秒以内に startForeground を成立させないと OS に
+            // kill され ConfigPoller も道連れになるため、型を落としてでも foreground 化を成立させる。
+            Log.e(TAG, "startForeground(typed) failed, retrying without type", first)
+            runCatching { startForeground(NOTIFICATION_ID, buildNotification("starting up")) }
+                .onFailure { Log.e(TAG, "startForeground(plain) failed", it) }
         }
 
+        // ★生命線を最優先で起動：設定/死活ポーリング（ConfigPoller）。これが回れば接続🟢と遠隔復帰が成立する。
+        //  以降の周辺初期化(BLE/wakelock/keep-awake/uploader)が何で失敗しても、poller だけは必ず立ち上げる。
+        //  旧実装は onCreate 内の周辺初期化が 1 つでも例外を投げると、poller 起動前にサービスごとクラッシュ→
+        //  START_STICKY で再生成→再クラッシュの無限ループに陥り、端末が永久に無音化していた（同一環境でも
+        //  prefs 差等で一部端末だけ死ぬ「不安定さ」の主因）。順序と例外隔離でこれを根治する。
+        runCatching {
+            if (configPoller == null) {
+                configPoller = ConfigPoller(context = applicationContext, scope = scope)
+            }
+        }.onFailure { Log.e(TAG, "ConfigPoller start failed", it) }
+
+        // ここから下は周辺機能。各々を独立に try で囲み、1 つの失敗が他や常駐を巻き込まないようにする。
+        runCatching { targetMac = Config.targetMac(this) }
+            .onFailure { Log.w(TAG, "targetMac read failed: ${it.message}") }
+        runCatching { lastMotion = Config.lastMotion(this) }
+            .onFailure { Log.w(TAG, "lastMotion read failed: ${it.message}") }
+        runCatching {
+            uploader = Uploader(
+                context = applicationContext,
+                webhookUrl = Config.webhookUrl(this),
+                scope = scope,
+            )
+        }.onFailure { Log.w(TAG, "uploader init failed: ${it.message}") }
+        runCatching {
+            val btManager = getSystemService(BLUETOOTH_SERVICE) as BluetoothManager
+            bluetoothAdapter = btManager.adapter
+        }.onFailure { Log.w(TAG, "bluetooth adapter init failed: ${it.message}") }
+        runCatching {
+            // Wake lock（CPU を起こし続けるだけ。画面 ON 維持は別途 KeepAwakeManager が担う）
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TVBleBridge::scan").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+        }.onFailure { Log.w(TAG, "wakelock init failed: ${it.message}") }
         // 画面オフ・スリープ・スクリーンセーバを無効化（権限があれば。再起動 revert 対策で常駐中も再適用）
-        KeepAwakeManager.applyNoSleepSettings(applicationContext)
-        // Device Owner なら lock task（キオスク）許可リストへ自分を登録しておく
-        //（SignageActivity.startLockTask の前提。Device Owner でなければ no-op）
-        PowerController.allowLockTaskSelf(applicationContext)
-        startKeepAwakeLoop()
-
-        // Uploader
-        uploader = Uploader(
-            context = applicationContext,
-            webhookUrl = webhookUrl,
-            scope = scope,
-        )
-
-        // ConfigPoller — リモート設定を定期取得
-        configPoller = ConfigPoller(
-            context = applicationContext,
-            scope = scope,
-        )
-
+        runCatching { KeepAwakeManager.applyNoSleepSettings(applicationContext) }
+            .onFailure { Log.w(TAG, "applyNoSleepSettings failed: ${it.message}") }
+        // Device Owner なら lock task（キオスク）許可リストへ自分を登録（非 Device Owner では no-op）
+        runCatching { PowerController.allowLockTaskSelf(applicationContext) }
+            .onFailure { Log.w(TAG, "allowLockTaskSelf failed: ${it.message}") }
+        runCatching { startKeepAwakeLoop() }
+            .onFailure { Log.w(TAG, "keep-awake loop start failed: ${it.message}") }
         // ネットワーク復帰を「復帰トリガ」として購読（県 WiFi 断→再接続時の自己回復）
-        registerNetworkCallback()
-
-        Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${webhookUrl.take(60)}...")
-
+        runCatching { registerNetworkCallback() }
+            .onFailure { Log.w(TAG, "registerNetworkCallback failed: ${it.message}") }
         // FCM トークンを取得→保存（ConfigPoller が次回ポーリングで v2 へ報告＝遠隔起動プッシュの宛先）。
         runCatching {
             com.google.firebase.messaging.FirebaseMessaging.getInstance().token
                 .addOnSuccessListener { Config.setFcmToken(applicationContext, it) }
         }.onFailure { Log.d(TAG, "fcm token fetch skipped: ${it.message}") }
+        // BLE スキャン開始（無効 MAC は startScan 内部で skip。例外も内部で握る）
+        runCatching { startScan() }
+            .onFailure { Log.w(TAG, "startScan failed: ${it.message}") }
 
-        startScan()
+        Log.i(TAG, "BleService onCreate done (poller=${configPoller != null}, target=$targetMac)")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -233,15 +250,26 @@ class BleService : Service() {
             return
         }
 
-        val filter = ScanFilter.Builder()
-            .setDeviceAddress(targetMac)
-            .build()
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-            .build()
+        // target_mac が有効な MAC 形式でなければ BLE スキャンを行わない。サイネージ専用機（センサ未設置）や、
+        // 旧 lp-config 由来の汚染値 target_mac="NULL"（JSON null → optString が "null"→"NULL" 化）では
+        // setDeviceAddress が IllegalArgumentException を投げ、onCreate を貫通してサービスが起動時クラッシュ
+        // ループに陥る。BLE はセンサ受信専用で、サイネージ表示と設定ポーリングには不要なため、無効時は安全に
+        // skip して常駐（ConfigPoller/サイネージ）を維持する（fail-safe）。
+        if (!BluetoothAdapter.checkBluetoothAddress(targetMac)) {
+            stateText = "no_ble_target"
+            Log.i(TAG, "startScan skipped: invalid target_mac='$targetMac' (signage + poll continue)")
+            updateNotification("BLE 対象なし（サイネージ稼働中）")
+            return
+        }
 
         try {
+            val filter = ScanFilter.Builder()
+                .setDeviceAddress(targetMac)
+                .build()
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .build()
             scanner.startScan(listOf(filter), settings, scanCallback)
             stateText = "scanning"
             updateNotification("BLE スキャン中: $targetMac")
@@ -253,6 +281,7 @@ class BleService : Service() {
     }
 
     private fun handleScanResult(result: ScanResult) {
+        if (!::uploader.isInitialized) return  // uploader 初期化失敗時もイベントだけ捨てて常駐は維持
         val parsed = SwitchBotParser.parse(result) ?: return
         if (parsed.deviceMac != targetMac) return  // 念のため
 
@@ -272,14 +301,17 @@ class BleService : Service() {
     }
 
     fun snapshotStatus(): StatusSnapshot {
+        // uploader 初期化失敗時でもクラッシュさせない（診断UIを開いた瞬間に未初期化例外→自動再起動
+        // ループに入るのを防ぐ。生命線=ConfigPoller とは無関係なので 0 値で返す）。
+        val up = if (::uploader.isInitialized) uploader else null
         return StatusSnapshot(
             targetMac = targetMac,
             stateText = stateText,
             lastEventText = lastEventText,
-            totalCount = uploader.totalCount(),
-            pendingCount = uploader.pendingCount,
-            lastSyncOk = uploader.lastSyncOk,
-            lastSyncTimeMs = uploader.lastSyncTimeMs,
+            totalCount = up?.totalCount() ?: 0,
+            pendingCount = up?.pendingCount ?: 0,
+            lastSyncOk = up?.lastSyncOk ?: false,
+            lastSyncTimeMs = up?.lastSyncTimeMs ?: 0L,
         )
     }
 
@@ -359,6 +391,17 @@ class BleService : Service() {
             } catch (e: Throwable) {
                 Log.w(TAG, "ensureRunning failed: ${e.message}")
             }
+        }
+
+        /**
+         * 「プロセスは生存しているが poller が永久停止」した時の最終手段（Watchdog.tick から呼ぶ）。
+         * 一旦サービスを停止し、数秒後の蘇生アラームで新インスタンスを起こす＝onCreate が再実行され
+         * ConfigPoller が作り直される（ensureRunning は冪等で既存の死んだ poller を蘇生できないため）。
+         * stopService→start のレースを避けるため、即時 ensureRunning ではなく restart アラームに委ねる。
+         */
+        fun forceRestart(context: Context) {
+            runCatching { context.stopService(Intent(context, BleService::class.java)) }
+            Watchdog.scheduleRestart(context, 2500L)
         }
 
         private const val TAG = "BleService"

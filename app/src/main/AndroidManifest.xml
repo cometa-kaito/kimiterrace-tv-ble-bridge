@@ -79,6 +79,7 @@
         android:required="false" />
 
     <application
+        android:name=".TvBridgeApp"
         android:allowBackup="false"
         android:icon="@android:drawable/ic_dialog_info"
         android:banner="@android:drawable/ic_dialog_info"
@@ -153,6 +154,12 @@
             android:enabled="true"
             android:exported="false" />
 
+        <!-- 常駐の最後の砦：定期ウォッチドッグ / クラッシュ後の自動蘇生アラーム受信 -->
+        <receiver
+            android:name=".WatchdogReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <!-- 端末起動時に BleService を自動開始 -->
         <receiver
             android:name=".BootReceiver"
@@ -163,6 +170,8 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <!-- APK 更新(再インストール)直後にも常駐/ウォッチドッグを再武装する -->
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
