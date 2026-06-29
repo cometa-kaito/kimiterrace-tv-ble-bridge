@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">キミテラス TV ブリッジ</string>
+    <string name="wifi_recovery_a11y_desc">サイネージ端末のネット接続が切れた際、設定画面で Wi-Fi を自動的に OFF→ON して接続を張り直します（自己復旧）。</string>
 </resources>

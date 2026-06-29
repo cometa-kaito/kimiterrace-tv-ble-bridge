@@ -98,7 +98,8 @@ object KeepAwakeManager {
     fun reassertForegroundIfNeeded(context: Context) {
         val sched = ScheduleConfig.load(context)
         if (sched.isCurrentlyInOffPeriod(Calendar.getInstance())) {
-            // OFF 期間: サイネージが万一前面に出ていたら消灯し直す（再起動は決してしない）。
+            // OFF 期間: サイネージが万一前面に出ていたら OFF 状態へ戻す（サイネージ再起動は決してしない）。
+            // screenOff がモードに応じて overlay 起動 / lockNow を行うので、ここはそれに委ねる。
             if (SignageActivity.isForeground) {
                 Log.i(TAG, "signage foreground during OFF period -> re-assert screenOff")
                 PowerController.screenOff(context)
@@ -108,6 +109,9 @@ object KeepAwakeManager {
         if (!Config.autoLaunchSignage(context)) return                   // 自動表示しない構成は触らない
         if (Config.signageUrl(context).isBlank()) return
         if (SignageActivity.isForeground) return                         // 既に前面なら何もしない
+        // no-DO（kiosk=false）: 抜けられるよう前面へ引き戻さない。復帰は reboot の起動時自動表示に委ねる。
+        // OFF 期間の screenOff（夜間消灯）は上で済んでおり、ここは ON 期間の前面強制復帰のみを抑止する。
+        if (!Config.kioskEnabled(context)) return
         Log.i(TAG, "signage not foreground during ON period -> re-assert")
         launchSignage(context)
     }

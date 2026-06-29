@@ -62,6 +62,9 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
+    // WorkManager: AlarmManager とは独立した OS 管理の常駐保証（第2経路・OEM の alarm 握り潰し耐性）。
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // FCM: v2 が 🔴 検知時に端末を遠隔起動するための高優先度プッシュ受信（Doze 貫通）。
     implementation(platform("com.google.firebase:firebase-bom:33.1.2"))
     implementation("com.google.firebase:firebase-messaging")

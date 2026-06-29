@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Wi-Fi 自動張り直し用アクセシビリティ・サービス設定。
+  canRetrieveWindowContent=true で Settings のノードを読み取り、"Wi-Fi" 行をクリックして OFF→ON する。
+  packageNames は指定しない（trigger 駆動なので全ウィンドウ受信で可・機種で settings パッケージ名が異なっても動く）。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:description="@string/wifi_recovery_a11y_desc"
+    android:accessibilityEventTypes="typeWindowStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:notificationTimeout="100" />

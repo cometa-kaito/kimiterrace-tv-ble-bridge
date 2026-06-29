@@ -55,6 +55,22 @@ object PowerController {
      * 端末本体は起きたまま（ポーリング継続）。CEC standby も補助的に試行。
      */
     fun screenOff(context: Context) {
+        // overlay モード（既定）: lockNow を使わず、黒オーバーレイ(明るさ0+FLAG_KEEP_SCREEN_ON)で擬似黒にする。
+        // パネルを起こしたまま擬似黒にするので、朝 ON は「オーバーレイ解除」だけで必ず復帰する
+        //（lockNow が復帰不能スリープを誘発するメーカー対策。lockNow バックストップは復帰不能化するため敢えて使わない）。
+        // applyCurrentState 任せにせず screenOff 自身でもオーバーレイ起動を試みる＝二経路の冗長化。
+        // どちらかが BAL/SYSTEM_ALERT_WINDOW で落ちても黒画面が出る（多重起動は singleTask で無害）。
+        if (Config.isNightOffOverlay(context)) {
+            Log.i(TAG, "screenOff: overlay mode -> show black overlay (keep-screen-on), lockNow skipped")
+            runCatching {
+                context.startActivity(
+                    Intent(context, BlackScreenActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                )
+            }.onFailure { Log.w(TAG, "screenOff: black overlay launch failed (SYSTEM_ALERT_WINDOW 未付与?): ${it.message}") }
+            return
+        }
+
         val locked = runCatching {
             if (canLock(context)) {
                 dpm(context)?.lockNow()
@@ -117,6 +133,25 @@ object PowerController {
     }
 
     /**
+     * Device Owner なら端末を再起動する（L3 セッション = DHCP/認証/DNS/経路 をまっさらに取り直す最終手段）。
+     * 「接続済みなのに v2 不達」で長時間復帰しない時の backstop。現地で人間が reboot して直したのと同じ効果を
+     * 自動化する。**非 Device Owner 機では reboot 権限が無いので no-op**（運用の定時パワーサイクル/現地リブートで
+     * 担保）＝ DO の有無で動作が分かれる「DO 無しでも壊れない・DO があれば自動復帰」設計。通話中等で失敗しうる
+     * ため runCatching で握る（TV では無関係）。
+     */
+    fun rebootIfOwner(context: Context) {
+        runCatching {
+            val manager = dpm(context) ?: return
+            if (manager.isDeviceOwnerApp(context.packageName)) {
+                Log.w(TAG, "Device Owner reboot() issued (L3 session recovery)")
+                manager.reboot(adminComponent(context))
+            } else {
+                Log.i(TAG, "rebootIfOwner: not device owner -> skip (non-DO box)")
+            }
+        }.onFailure { Log.w(TAG, "rebootIfOwner failed: ${it.message}") }
+    }
+
+    /**
      * Device Owner なら自分自身を lock task（キオスク）許可リストへ登録する。
      * SignageActivity.startLockTask() の前提。Device Owner でなければ no-op。
      */
@@ -132,4 +167,27 @@ object PowerController {
             }
         }.onFailure { Log.w(TAG, "allowLockTaskSelf failed: ${it.message}") }
     }
+
+    /**
+     * Device Owner 機で、ロックタスク中でも **設定アプリ(Wi-Fi 設定)を起動できる**よう許可リストに加える。
+     * 非DO なら no-op。DO 機（HKC 等）は lockTask が他アプリ起動をブロックし、a11y 復帰が Settings を
+     * 開けない（error 101）。本メソッドで自パッケージ＋設定アプリを許可すると、キオスク（自パッケージのピン留め）
+     * は維持したまま、復帰時のみ Settings を開ける。a11y 復帰開始時に呼ぶ。
+     * （HKC は機内/wifi_on/ setWifiEnable すべて無視するため、Settings UI 経由のトグルが唯一効く手段）。
+     */
+    fun allowSettingsInLockTask(context: Context) {
+        runCatching {
+            val manager = dpm(context) ?: return
+            if (manager.isDeviceOwnerApp(context.packageName)) {
+                manager.setLockTaskPackages(
+                    adminComponent(context),
+                    arrayOf(context.packageName, SETTINGS_PKG),
+                )
+                Log.i(TAG, "lock task allowlist += $SETTINGS_PKG (a11y が Wi-Fi 設定を開けるように)")
+            }
+        }.onFailure { Log.w(TAG, "allowSettingsInLockTask failed: ${it.message}") }
+    }
+
+    /** Android TV 設定アプリ（Wi-Fi 設定の所属）。1年/2年/3年すべて同一。 */
+    private const val SETTINGS_PKG = "com.android.tv.settings"
 }

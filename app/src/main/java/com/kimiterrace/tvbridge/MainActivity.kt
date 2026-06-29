@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     // サイネージ / リモート設定 UI
     private lateinit var signageUrlInput: EditText
     private lateinit var autoLaunchCheckbox: CheckBox
+    private lateinit var nightOverlayCheckbox: CheckBox
     private lateinit var launchSignageButton: Button
     private lateinit var saveSignageButton: Button
     private lateinit var configEndpointInput: EditText
@@ -128,12 +129,14 @@ class MainActivity : AppCompatActivity() {
         // サイネージ / リモート設定 UI 取得
         signageUrlInput = findViewById(R.id.input_signage_url)
         autoLaunchCheckbox = findViewById(R.id.cb_autolaunch)
+        nightOverlayCheckbox = findViewById(R.id.cb_night_overlay)
         launchSignageButton = findViewById(R.id.button_launch_signage)
         saveSignageButton = findViewById(R.id.button_save_signage)
         configEndpointInput = findViewById(R.id.input_config_endpoint)
 
         signageUrlInput.setText(Config.signageUrl(this))
         autoLaunchCheckbox.isChecked = Config.autoLaunchSignage(this)
+        nightOverlayCheckbox.isChecked = Config.isNightOffOverlay(this)
         configEndpointInput.setText(Config.configEndpoint(this))
 
         signageUrlInput.addTextChangedListener(simpleWatcher {
@@ -143,6 +146,13 @@ class MainActivity : AppCompatActivity() {
         configEndpointInput.addTextChangedListener(simpleWatcher { Config.setConfigEndpoint(this, it) })
         autoLaunchCheckbox.setOnCheckedChangeListener { _, isChecked ->
             Config.setAutoLaunchSignage(this, isChecked)
+        }
+        nightOverlayCheckbox.setOnCheckedChangeListener { _, isChecked ->
+            // checked = overlay（擬似黒・復帰優先）、unchecked = lock（真の消灯）
+            Config.setNightOffMode(
+                this,
+                if (isChecked) Config.NIGHT_OFF_MODE_OVERLAY else Config.NIGHT_OFF_MODE_LOCK,
+            )
         }
 
         launchSignageButton.setOnClickListener {
@@ -160,6 +170,10 @@ class MainActivity : AppCompatActivity() {
             Config.extractAndSaveClassroomContext(this, url)
             Config.setConfigEndpoint(this, configEndpointInput.text.toString().trim())
             Config.setAutoLaunchSignage(this, autoLaunchCheckbox.isChecked)
+            Config.setNightOffMode(
+                this,
+                if (nightOverlayCheckbox.isChecked) Config.NIGHT_OFF_MODE_OVERLAY else Config.NIGHT_OFF_MODE_LOCK,
+            )
         }
 
         // 起動時、必要権限が揃っていれば自動でサービス開始

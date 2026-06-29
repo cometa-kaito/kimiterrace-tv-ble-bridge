@@ -3,6 +3,7 @@ package com.kimiterrace.tvbridge
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -59,11 +60,15 @@ import kotlin.random.Random
 class ConfigPoller(
     private val context: Context,
     private val pollIntervalMs: Long = DEFAULT_POLL_INTERVAL_MS,
-    scope: CoroutineScope,
+    private val scope: CoroutineScope,
 ) {
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
+        .writeTimeout(15, TimeUnit.SECONDS)
+        // 全体上限。connect/read 個別 timeout がリセットされ続ける slowloris 的ハングを断ち切り、
+        // 1 回の poll が無限延伸して steady-state ループを止めるのを防ぐ。
+        .callTimeout(30, TimeUnit.SECONDS)
         .build()
 
     init {
@@ -72,20 +77,51 @@ class ConfigPoller(
             var failureStreak = 0
             // 起動直後にも一度叩く（結果でバックオフ初期値を決める）
             var lastResult = runCatching { pollOnce() }.getOrElse { e ->
+                if (e is CancellationException) throw e
                 if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
             }
+            recordIfSuccess(lastResult)
             failureStreak = updateStreak(failureStreak, lastResult)
             while (true) {
-                // 成功時は steady-state（pollIntervalMs）。失敗時はバックオフ + ジッタ。
-                delay(nextDelayMs(failureStreak, lastResult))
-                lastResult = try {
-                    pollOnce()
+                // ループ本体全体を握る。delay / バックオフ計算 / pollOnce のいずれで想定外例外が出ても
+                // ループ自体は絶対に抜けない（= poller スレッドが死んで永久無音化するのを防ぐ）。
+                // ただし CancellationException は coroutine の正常停止信号なので必ず再送出する。
+                try {
+                    // 成功時は steady-state（pollIntervalMs）。失敗時はバックオフ + ジッタ。
+                    delay(nextDelayMs(failureStreak, lastResult))
+                    lastResult = try {
+                        pollOnce()
+                    } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
+                        Log.d(TAG, "poll skipped: ${e.javaClass.simpleName}: ${e.message}")
+                        if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
+                    }
+                    recordIfSuccess(lastResult)
+                    failureStreak = updateStreak(failureStreak, lastResult)
+                } catch (c: CancellationException) {
+                    throw c
                 } catch (e: Throwable) {
-                    Log.d(TAG, "poll skipped: ${e.javaClass.simpleName}: ${e.message}")
-                    if (e is IOException) PollResult.NETWORK_LOSS else PollResult.FAILURE
+                    Log.w(TAG, "poll loop iteration error (continuing)", e)
                 }
-                failureStreak = updateStreak(failureStreak, lastResult)
             }
+        }
+    }
+
+    /** 成功時に「最後に生きていた時刻」を永続化する（Watchdog の poll liveness 判定の根拠）。 */
+    private fun recordIfSuccess(result: PollResult) {
+        if (result == PollResult.SUCCESS) {
+            runCatching { Config.setLastPollSuccessMs(context, System.currentTimeMillis()) }
+        }
+    }
+
+    /**
+     * 定期ループとは別に、いますぐ 1 回だけポーリングする（ネット復帰トリガ等から呼ぶ）。
+     * 長時間のネット断後の素早い再同期が目的。失敗は握りつぶす（次の定期ループが拾う）。
+     */
+    fun pollNow() {
+        scope.launch(Dispatchers.IO) {
+            runCatching { pollOnce() }
+                .onFailure { Log.d(TAG, "pollNow skipped: ${it.message}") }
         }
     }
 
@@ -214,6 +250,11 @@ class ConfigPoller(
         }
         cfg.optJSONObject("schedule")?.let { sched ->
             val existing = ScheduleConfig.load(context)
+            // 複数時間帯（v2 の sibling フィールド `schedule_windows`）。新しいサーバはこれを併送する。
+            // 旧サーバ/未指定なら空＝単一窓（schedule の on/off）にフォールバック（後方互換）。
+            val windows = ScheduleConfig.parseWindowsJson(
+                cfg.optJSONArray("schedule_windows")?.toString() ?: "",
+            )
             val newSched = ScheduleConfig(
                 enabled = sched.optBoolean("enabled", existing.enabled),
                 onHour = sched.optInt("on_hour", existing.onHour),
@@ -221,13 +262,33 @@ class ConfigPoller(
                 offHour = sched.optInt("off_hour", existing.offHour),
                 offMinute = sched.optInt("off_minute", existing.offMinute),
                 daysMask = sched.optInt("days_mask", existing.daysMask),
+                windows = windows,
             )
+            // サニティ: enabled なのに days_mask=0（全曜日非対象）は「24/7 黒画面」になる誤設定。
+            // 誤った遠隔 config 1 つで全端末が真っ黒になるのを端末側 fail-safe で弾く（既存設定を維持）。
+            if (newSched.enabled && newSched.daysMask == 0) {
+                Log.w(TAG, "ignored schedule with days_mask=0 (would blank 24/7)")
+                return@let
+            }
             if (newSched != existing) {
                 ScheduleConfig.save(context, newSched)
                 ScheduleManager.rescheduleAll(context)
                 // スケジュール変更を即時に画面へ反映（OFF時間帯のさなかの有効化でも黒画面化）
                 ScheduleManager.applyCurrentState(context)
                 Log.i(TAG, "schedule updated")
+            }
+        }
+
+        // 夜間 OFF の方式（overlay=擬似黒/復帰優先 ・ lock=真の消灯）。メーカーごとに per-device で切替可能。
+        // 既知の値のみ採用し、未知値・欠落・null("null") は無視する（既定 overlay のまま）。
+        cfg.optString("night_off_mode").takeIf {
+            it == Config.NIGHT_OFF_MODE_OVERLAY || it == Config.NIGHT_OFF_MODE_LOCK
+        }?.let { mode ->
+            if (mode != Config.nightOffMode(context)) {
+                Config.setNightOffMode(context, mode)
+                Log.i(TAG, "night_off_mode updated -> $mode")
+                // OFF 期間のさなかに切り替わっても即反映（黒の出し方＝KEEP_SCREEN_ON 有無が変わるため）
+                ScheduleManager.applyCurrentState(context)
             }
         }
     }
@@ -256,6 +317,21 @@ class ConfigPoller(
             // 管理側から送る復帰信号：no-sleep 設定を再適用し、サイネージを前面へ戻す
             Log.i(TAG, "command: wake")
             KeepAwakeManager.forceWake(context)
+        }
+        // SwitchBot プラグ電源制御（フリート管理。v2 連携前は休眠＝サーバが送らない限り発火しない）。
+        // 対象プラグ MAC は Config.plugMac（未設定なら no-op）。⚠ 自端末の電源プラグを off/cycle すると
+        // 自分が落ちて復帰できないため、原則「他端末/管理用プラグ」に対して使うこと。
+        val plugAction = when {
+            cmd.optBoolean("plug_on", false) -> "on"
+            cmd.optBoolean("plug_off", false) -> "off"
+            cmd.optBoolean("plug_cycle", false) -> "cycle"
+            cmd.optBoolean("plug_toggle", false) -> "toggle"
+            else -> null
+        }
+        if (plugAction != null) {
+            val mac = Config.plugMac(context)
+            Log.i(TAG, "command: plug_$plugAction (mac configured=${mac.isNotBlank()})")
+            if (mac.isNotBlank()) SwitchBotPlug.control(context, mac, plugAction)
         }
         // service_restart 等はリスクが高いので段階的に追加
     }
