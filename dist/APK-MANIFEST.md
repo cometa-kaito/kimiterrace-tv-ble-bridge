@@ -1,6 +1,6 @@
 # tv-ble-bridge 注入プログラム 集約台帳（APK インベントリ）
 
-最終更新: 2026-06-17
+最終更新: 2026-06-29
 
 モニタへ注入する Android アプリ `com.kimiterrace.tvbridge` の **ソースとビルド成果物の所在を一元管理**する台帳。
 散乱した APK のどれが何のビルドかを sha256 で固定し、現場に入っているものを追跡する。
@@ -9,7 +9,7 @@
 
 ## 正本ソース（唯一・散乱なし）
 
-- リポジトリ: `学校DX事業/03_PoC実施/実証実験/03_ハードウェア/tv-ble-bridge`（git 管理）
+- リポジトリ: `app/tv-ble-bridge`（git 管理・2026-06-25 に `学校DX事業/03_PoC実施/実証実験/03_ハードウェア/` から本ワークスペース直下へ移設）
 - HEAD: `8de64d6`（`git log` で確認）
 - **ソースのコピーはこの1本のみ**（Desktop/Downloads/_archive/キミテラス-v2 を走査して確認済み 2026-06-17）。
 
@@ -39,7 +39,9 @@
 
 | sha256(先頭16) | size(byte) | build日 | ファイル | 状態 |
 |---|---|---|---|---|
-| `48ac8ebf1b509b63` | 7,570,934 | 2026-06-17 | `dist/v2-build/tv-ble-bridge-resilience-20260617.apk` | **最新・全面堅牢化版（次に現地 flash 推奨）。未配布** |
+| `b474c74ed79d9ae4` | 7,596,202 | 2026-06-29 | `dist/v2-build/tv-ble-bridge-multi-offwindow-20260629.apk` | **最新。複数消灯時間帯対応（`schedule_windows`・分単位・OFF=全 ON 窓の外＝昼休み消灯等。ConfigPoller が v2 の `schedule_windows` を解析→`ScheduleConfig.windows`）。中身は branch `feat/tv-resilience-hardening` の全 working tree＝resilience/Watchdog/a11y(WifiRecoveryAccessibilityService)/NetworkCycle/PlugCommand を同梱。署名0951・versionCode=1。未配布（2026-06-29 夕方 注入予定）** |
+| `e119b5df0a8a3832` | 7,644,340 | 2026-06-22 | `dist/v2-build/tv-ble-bridge-l3recovery-plug-20260622.apk` | 前版。WifiLock＋L3復帰reboot(DO機のみ)＋SwitchBotプラグBLE制御。multi-offwindow版(上)に内包・未配布 |
+| `48ac8ebf1b509b63` | 7,570,934 | 2026-06-17 | `dist/v2-build/tv-ble-bridge-resilience-20260617.apk` | 全面堅牢化版。6/17 電子工学科3台へ導入・🟢確認済（前版） |
 | `ab4a01db5a37b2a2` | 7,304,030 | 2026-06-15 | `dist/v2-build/tv-ble-bridge-night-off-20260615.apk` | 前版（現場に入っている想定） |
 | `64e431ccbda9fbe7` | 7,181,874 | 2026-06-11 | `dist/v2-build/tv-ble-bridge-fcm-20260611.apk` | 旧（FCM 遠隔起動 導入版） |
 | `e50aba66eb0beed6` | 6,454,118 | 2026-06-08 | `dist/v2-build/tv-ble-bridge-v2migration-20260608.apk` | 旧（v2 移行 初版。旧名 `tv-ble-bridge-debug.apk` を版数名へ改名） |
@@ -90,3 +92,16 @@
 - ＝「全部対策」した1枚のAPKが、3台それぞれ**別々の死に方**をまとめてカバーすることを実機で確認。
 
 > 運用メモ: 作業時は3台とも一時的にスマホのテザリング（10.248.149.x）に接続。作業後は**校内WiFiへ戻してOK**（device_id 不変でどのネットでも🟢）。
+
+## 現地導入記録（2026-06-18・岐阜工業 進路指導室前）
+
+`tv-ble-bridge-resilience-20260617.apk`（sha256 `48ac8ebf…`）を `adb install -r`（prefs維持）で導入し、実機ログ＋画面で🟢確認。
+
+| 設置場所(device_label) | device_id | 機種（箱） | 旧APK | 結果 |
+|---|---|---|---|---|
+| 岐阜県立岐阜工業高校_進路指導室前 | `73f65bf0-…` | **HKC 4K GTV** | 2026-06-13 ビルド（resilience 未導入だった） | ✅ 導入・🟢 09:34 JST |
+
+- 6/17 に電子工学科3台へ入れた際、本機（HKC・進路指導室前）は未更新で残っていた＝**HKC は OS の積極 kill で旧APKが復帰しない死に方の機種**のため、同 resilience 版へ更新して免疫化。
+- `192.168.11.12:5555` で adb 接続（HKC・model `4K_SA_Google_TV`）。`install -r` で device_id/signage_url/config_endpoint 等 prefs は全維持。
+- 導入直後ログに **`Watchdog: watchdog armed (+15min)`**（旧6/13ビルドに無い新コード）＝レジリエンス版稼働の確証。`page loaded …?design=pattern2` で盤面ロード・`lock task started (kiosk)` でキオスク復帰。
+- **注意（識別ラベルと表示内容の不一致は正常）**: 本機の `device_label`（監視用）＝「進路指導室前」だが、`signage_url` トークンが解決する**盤面の表示は「1年1組」**。両者は別レイヤ。広告枠（盤面右の暗帯）は 1年1組＝テスト校で**未配信が正**。

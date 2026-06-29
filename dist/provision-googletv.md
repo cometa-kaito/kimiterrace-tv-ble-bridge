@@ -167,8 +167,10 @@ $inner = "mkdir -p shared_prefs; echo $b64 | base64 -d > shared_prefs/tv_ble_bri
 & $adb shell dumpsys deviceidle whitelist +com.kimiterrace.tvbridge
 ```
 
-> ⚠️ **位置情報トグル**: OFF だと logcat に `Permission denial: Location is off`、検知ゼロ。
-> **TV 再起動で OFF に戻る**ことがあるので再起動後に再確認。
+> ⚠️ **位置情報権限/トグルは BLE スキャンの前提（Android 11）**。Device Owner でも **runtime 権限は自動付与されない**ので
+> 上の `pm grant … ACCESS_FINE_LOCATION` は必須。**権限未付与だと BLE スキャンが結果0件・例外も出さず無言で失敗**する
+> （人感センサが「全く検知されない」原因不明の症状になる。2026-06-20 岐阜工業の no-DO 機で実踏）。
+> トグル OFF 側は logcat に `Permission denial: Location is off`、検知ゼロ。**TV 再起動で OFF に戻る**ことがあるので再起動後に再確認。
 > ⚠️ **SYSTEM_ALERT_WINDOW**: 未許可だと黒画面/サイネージのバックグラウンド起動が BAL 制限で弾かれる。
 
 ---

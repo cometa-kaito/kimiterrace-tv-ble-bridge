@@ -17,7 +17,7 @@
 ## 1. 準備（PC = 校内LAN内 / Windows）
 ```bash
 ADB="/c/Users/20051/AppData/Local/Android/Sdk/platform-tools/adb.exe"
-APK="C:/Users/20051/Desktop/学校DX事業/03_PoC実施/実証実験/03_ハードウェア/tv-ble-bridge/dist/v2-build/tv-ble-bridge-resilience-20260617.apk"
+APK="C:/Users/20051/Desktop/app/tv-ble-bridge/dist/v2-build/tv-ble-bridge-resilience-20260617.apk"
 PKG="com.kimiterrace.tvbridge"
 ```
 - 各モニタの **IP** を用意（TV設定→ネットワーク→接続中Wi-Fi、または校内ルータのDHCP一覧）。

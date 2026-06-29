@@ -32,8 +32,9 @@ MSYS_NO_PATHCONV=1 "$ADB" connect "$DEV"
 
 | 教室 | device_id | 備考 |
 |---|---|---|
-| **1年1組** | `73f65bf0-feeb-4864-90a7-b030a9713d98` | 192.168.11.12 / HKC 4K Google TV(`lakeside`)・**テスト校で別系統**（岐南電子工学科とは別）。signage_url=`qERLY4wH…?design=pattern2` |
-| 岐南 電子工学科 1〜3年 | provision-googletv.md §4 の表 | 別 device_id |
+| **岐阜工業高校 進路指導室前** | `ef315334-93ff-48d2-9825-a096d716d655` | **no-DO（Device Owner 無し・抜けられる）**。同じ HKC 機を factory reset → 192.168.11.13 / `lakeside`。APK=`tv-ble-bridge-nodo-kiosk-20260618.apk`（kiosk=false）。signage_url=`eU0mdHFP…`。**2026-06-18 注入・全項目検証済🟢**（[provision-nodo-runbook.md](provision-nodo-runbook.md)）|
+| ~~1年1組~~ | `73f65bf0-feeb-4864-90a7-b030a9713d98` | （旧）192.168.11.12 / HKC 4K Google TV(`lakeside`)。**↑へ factory reset 済**。テスト校で別系統。signage_url=`qERLY4wH…?design=pattern2` |
+| 岐南 電子工学科 1〜3年 | provision-googletv.md §4 の表 | 別 device_id（Device Owner 化済の実運用機） |
 
 > device_id は**端末 prefs に焼く値**＝v2 のシード行と一致させる。違うと lp-config が空応答になり何も出ない。
 
