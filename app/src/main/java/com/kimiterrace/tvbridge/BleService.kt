@@ -16,6 +16,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -44,6 +45,7 @@ class BleService : Service() {
     private lateinit var uploader: Uploader
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     // ネット復帰トリガ（県 WiFi 断→再接続時の自己回復）用
     private var configPoller: ConfigPoller? = null
@@ -127,6 +129,17 @@ class BleService : Service() {
                 acquire()
             }
         }.onFailure { Log.w(TAG, "wakelock init failed: ${it.message}") }
+        // Wi-Fi lock（県 WiFi の夜間 省電力スリープ/disassociation を抑止＝接続セッションを腐らせない予防）。
+        // 「接続済みなのに v2 不達(=L3 セッション死)」の主トリガである Wi-Fi 省電力断を防ぐ、非 DO の本命。
+        runCatching {
+            val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+            @Suppress("DEPRECATION")
+            wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "TVBleBridge::wifi").apply {
+                setReferenceCounted(false)
+                acquire()
+            }
+            Log.i(TAG, "wifi lock acquired (FULL_HIGH_PERF)")
+        }.onFailure { Log.w(TAG, "wifi lock init failed: ${it.message}") }
         // 画面オフ・スリープ・スクリーンセーバを無効化（権限があれば。再起動 revert 対策で常駐中も再適用）
         runCatching { KeepAwakeManager.applyNoSleepSettings(applicationContext) }
             .onFailure { Log.w(TAG, "applyNoSleepSettings failed: ${it.message}") }
@@ -235,6 +248,7 @@ class BleService : Service() {
         try { bluetoothAdapter?.bluetoothLeScanner?.stopScan(scanCallback) } catch (_: Throwable) {}
         runCatching { networkCallback?.let { cb -> connectivityManager?.unregisterNetworkCallback(cb) } }
         wakeLock?.let { if (it.isHeld) it.release() }
+        wifiLock?.let { if (it.isHeld) it.release() }
         scope.cancel()
         supervisorJob.cancel()
         if (BleServiceHandle.current === this) BleServiceHandle.current = null

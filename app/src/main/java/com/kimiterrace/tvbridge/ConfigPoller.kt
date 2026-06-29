@@ -250,6 +250,11 @@ class ConfigPoller(
         }
         cfg.optJSONObject("schedule")?.let { sched ->
             val existing = ScheduleConfig.load(context)
+            // 複数時間帯（v2 の sibling フィールド `schedule_windows`）。新しいサーバはこれを併送する。
+            // 旧サーバ/未指定なら空＝単一窓（schedule の on/off）にフォールバック（後方互換）。
+            val windows = ScheduleConfig.parseWindowsJson(
+                cfg.optJSONArray("schedule_windows")?.toString() ?: "",
+            )
             val newSched = ScheduleConfig(
                 enabled = sched.optBoolean("enabled", existing.enabled),
                 onHour = sched.optInt("on_hour", existing.onHour),
@@ -257,6 +262,7 @@ class ConfigPoller(
                 offHour = sched.optInt("off_hour", existing.offHour),
                 offMinute = sched.optInt("off_minute", existing.offMinute),
                 daysMask = sched.optInt("days_mask", existing.daysMask),
+                windows = windows,
             )
             // サニティ: enabled なのに days_mask=0（全曜日非対象）は「24/7 黒画面」になる誤設定。
             // 誤った遠隔 config 1 つで全端末が真っ黒になるのを端末側 fail-safe で弾く（既存設定を維持）。
@@ -311,6 +317,21 @@ class ConfigPoller(
             // 管理側から送る復帰信号：no-sleep 設定を再適用し、サイネージを前面へ戻す
             Log.i(TAG, "command: wake")
             KeepAwakeManager.forceWake(context)
+        }
+        // SwitchBot プラグ電源制御（フリート管理。v2 連携前は休眠＝サーバが送らない限り発火しない）。
+        // 対象プラグ MAC は Config.plugMac（未設定なら no-op）。⚠ 自端末の電源プラグを off/cycle すると
+        // 自分が落ちて復帰できないため、原則「他端末/管理用プラグ」に対して使うこと。
+        val plugAction = when {
+            cmd.optBoolean("plug_on", false) -> "on"
+            cmd.optBoolean("plug_off", false) -> "off"
+            cmd.optBoolean("plug_cycle", false) -> "cycle"
+            cmd.optBoolean("plug_toggle", false) -> "toggle"
+            else -> null
+        }
+        if (plugAction != null) {
+            val mac = Config.plugMac(context)
+            Log.i(TAG, "command: plug_$plugAction (mac configured=${mac.isNotBlank()})")
+            if (mac.isNotBlank()) SwitchBotPlug.control(context, mac, plugAction)
         }
         // service_restart 等はリスクが高いので段階的に追加
     }

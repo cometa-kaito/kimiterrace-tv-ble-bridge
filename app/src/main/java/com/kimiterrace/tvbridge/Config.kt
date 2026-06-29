@@ -20,6 +20,8 @@ object Config {
     private const val KEY_CONFIG_ENDPOINT = "config_endpoint"
     private const val KEY_CONFIG_VERSION = "config_version"
     private const val KEY_AUTOLAUNCH_SIGNAGE = "autolaunch_signage"
+    // no-DO 運用フラグ。true=キオスク（前面強制復帰 + lock-task ピン）, false=抜けられる（Device Owner 無し機種向け）。
+    private const val KEY_KIOSK_ENABLED = "kiosk_enabled"
     // Phase 4: マルチデバイス対応
     private const val KEY_DEVICE_ID = "device_id"
     private const val KEY_SCHOOL_ID = "school_id"
@@ -99,6 +101,25 @@ object Config {
         }
     }
 
+    /**
+     * キオスク挙動の有効/無効（no-DO 運用フラグ）。既定 **true**＝従来どおり（前面強制復帰 + lock-task でピン）。
+     *
+     * `false` にすると「**抜けられるサイネージ**」になる: KeepAwakeManager の前面強制復帰をしない
+     * （HOME/Back で離れられ、引き戻されない。復帰は reboot の起動時自動表示に委ねる）／lock-task もしない。
+     * **Device Owner 化できる機種が少ない**ため no-DO 機での既定運用に使う（[[project_kimiteras_signage_no_device_owner_direction]]）。
+     * 起動時の自動表示（{@link autoLaunchSignage}）とは**独立**＝`kiosk=false` でも boot 表示は autoLaunch 任せで残せる。
+     */
+    fun kioskEnabled(context: Context): Boolean {
+        val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return p.getBoolean(KEY_KIOSK_ENABLED, true)
+    }
+
+    fun setKioskEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
+            putBoolean(KEY_KIOSK_ENABLED, enabled)
+        }
+    }
+
     // ---------- 夜間 OFF の方式（復帰不能スリープ対策） ----------
 
     /**
@@ -113,7 +134,14 @@ object Config {
     fun nightOffMode(context: Context): String {
         val p = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val v = p.getString(KEY_NIGHT_OFF_MODE, NIGHT_OFF_MODE_OVERLAY)
-        return if (v == NIGHT_OFF_MODE_LOCK) NIGHT_OFF_MODE_LOCK else NIGHT_OFF_MODE_OVERLAY
+        // "lock"（真の消灯=lockNow）は Device Owner でしか効かない。非DO機で lock を設定すると lockNow が
+        // no-op になり、黒オーバーレイの FLAG_KEEP_SCREEN_ON も張られないまま画面だけ消える → スリープして
+        // 朝まで戻らない事故になりうる。非DO機ではリモート設定の誤りでも必ず安全側 overlay に倒す（足元の地雷除去）。
+        return if (v == NIGHT_OFF_MODE_LOCK && PowerController.isDeviceOwner(context)) {
+            NIGHT_OFF_MODE_LOCK
+        } else {
+            NIGHT_OFF_MODE_OVERLAY
+        }
     }
 
     /** overlay（擬似黒・復帰優先）モードか。 */
@@ -244,5 +272,79 @@ object Config {
 
     fun setLastForceRestartMs(context: Context, ms: Long) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putLong(KEY_LAST_FORCE_RESTART_MS, ms) }
+    }
+
+    private const val KEY_LAST_REBOOT_MS = "last_reboot_ms"
+
+    /** 直近で Watchdog が Device Owner reboot を実行した壁時計時刻(ms)。reboot ループ抑止のクールダウン用。 */
+    fun lastRebootMs(context: Context): Long =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_LAST_REBOOT_MS, 0L)
+
+    fun setLastRebootMs(context: Context, ms: Long) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putLong(KEY_LAST_REBOOT_MS, ms) }
+    }
+
+    // ---------- SwitchBot プラグ電源制御（BLE ゲートウェイ。on/off/cycle） ----------
+
+    private const val KEY_PLUG_MAC = "plug_mac"
+
+    /** 制御対象 SwitchBot Plug Mini の MAC（コロン区切り）。未設定（空）ならプラグ制御は no-op。 */
+    fun plugMac(context: Context): String =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getString(KEY_PLUG_MAC, "") ?: ""
+
+    fun setPlugMac(context: Context, mac: String) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putString(KEY_PLUG_MAC, mac) }
+    }
+
+    // ---------- 機内モード Wi-Fi サイクル（非DOのL3復旧）の進行管理 ----------
+
+    private const val KEY_AIRPLANE_CYCLE_UNTIL_MS = "airplane_cycle_until_ms"
+
+    /** 正規の機内モードサイクルが進行中とみなす期限(ms)。Watchdog の安全OFFがこの間は割り込まないため。 */
+    fun airplaneCycleUntilMs(context: Context): Long =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getLong(KEY_AIRPLANE_CYCLE_UNTIL_MS, 0L)
+
+    fun setAirplaneCycleUntilMs(context: Context, ms: Long) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putLong(KEY_AIRPLANE_CYCLE_UNTIL_MS, ms) }
+    }
+
+    // ---------- 朝の予防的 reboot（Device Owner 機・opt-in） ----------
+
+    private const val KEY_MORNING_REBOOT = "morning_reboot_enabled"
+
+    /**
+     * WARMUP（点灯30分前）に Device Owner 機を予防的に graceful reboot するか（既定 false＝opt-in）。
+     * true かつ Device Owner のときだけ WARMUP で reboot（電源は切らずL3セッションをまっさらに取り直す）。
+     * 非DO機や false のときは reboot せず Wi-Fi トグルで張り直す。
+     */
+    fun morningRebootEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_MORNING_REBOOT, false)
+
+    fun setMorningRebootEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_MORNING_REBOOT, enabled) }
+    }
+
+    // ---------- 朝5時の定時ネット復旧（表示スケジュールと独立） ----------
+
+    private const val KEY_DAILY_RECOVERY = "daily_recovery_enabled"
+    private const val KEY_RECOVERY_USE_WIFI = "recovery_use_wifi_toggle"
+
+    /** 朝5時の定時ネット復旧を有効にするか（既定 true）。false で 05:00 復旧アラームの処理をスキップ。 */
+    fun dailyRecoveryEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_DAILY_RECOVERY, true)
+
+    fun setDailyRecoveryEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_DAILY_RECOVERY, enabled) }
+    }
+
+    /**
+     * 5時復旧の「非DO/非reboot」時に案B(`wifi_on` トグル)を使うか（既定 false＝案A 機内モード）。
+     * 実機テストで効く方が判明したら adb で切り替える（SET_RECOVERY_WIFI）。
+     */
+    fun recoveryUseWifiToggle(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_RECOVERY_USE_WIFI, false)
+
+    fun setRecoveryUseWifiToggle(context: Context, useWifi: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit { putBoolean(KEY_RECOVERY_USE_WIFI, useWifi) }
     }
 }

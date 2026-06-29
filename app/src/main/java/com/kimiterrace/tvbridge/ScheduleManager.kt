@@ -22,13 +22,20 @@ object ScheduleManager {
     // 始業前ウォームアップ: ON 時刻の少し前に常駐サービス/no-sleep 設定を蘇生させ、
     // 夜間に劣化したプロセス状態を生徒登校前にリセットする（#6）。
     const val ACTION_ALARM_WARMUP = "com.kimiterrace.tvbridge.ALARM_WARMUP"
+    // 朝5時の定時ネット復旧（表示スケジュールと独立・毎日）。夜間の L3 セッション死を始業前に取り直す。
+    const val ACTION_ALARM_RECOVERY = "com.kimiterrace.tvbridge.ALARM_RECOVERY"
 
     private const val REQ_ON = 1001
     private const val REQ_OFF = 1002
     private const val REQ_WARMUP = 1003
+    private const val REQ_RECOVERY = 1004
 
     /** ON 時刻の何分前にウォームアップを発火させるか。 */
     private const val WARMUP_LEAD_MINUTES = 30
+
+    /** 朝の定時ネット復旧の時刻（毎日 05:00・表示スケジュールと独立）。 */
+    private const val RECOVERY_HOUR = 5
+    private const val RECOVERY_MINUTE = 0
 
     fun rescheduleAll(context: Context) {
         val cfg = ScheduleConfig.load(context)
@@ -38,15 +45,31 @@ object ScheduleManager {
         am.cancel(buildPendingIntent(context, ACTION_ALARM_ON, REQ_ON))
         am.cancel(buildPendingIntent(context, ACTION_ALARM_OFF, REQ_OFF))
         am.cancel(buildPendingIntent(context, ACTION_ALARM_WARMUP, REQ_WARMUP))
+        am.cancel(buildPendingIntent(context, ACTION_ALARM_RECOVERY, REQ_RECOVERY))
+
+        val now = Calendar.getInstance()
+
+        // 朝5時の定時ネット復旧は **表示スケジュールと独立** に毎日必ず予約する（夜間の L3 セッション死は
+        // 表示 ON/OFF と無関係。schedule 無効・休日でもネット復旧は要る）。
+        val recovery = nextDailyAt(now, RECOVERY_HOUR, RECOVERY_MINUTE)
+        setExactAlarm(context, am, recovery, ACTION_ALARM_RECOVERY, REQ_RECOVERY)
+        Log.i(TAG, "next RECOVERY = ${recovery.time}")
 
         if (!cfg.enabled) {
-            Log.i(TAG, "schedule disabled, no alarms set")
+            Log.i(TAG, "schedule disabled, display alarms not set (recovery still armed)")
             return
         }
 
-        val now = Calendar.getInstance()
-        val nextOn = nextOccurrence(now, cfg, cfg.onHour, cfg.onMinute)
-        val nextOff = nextOccurrence(now, cfg, cfg.offHour, cfg.offMinute)
+        // 複数窓対応: 全窓の点灯/消灯エッジの中から「次に来る最も早いもの」を ON/OFF アラームに使う。
+        // 発火のたび receiver が rescheduleAll を呼ぶため、毎回その先のエッジへ自動で再武装される
+        // （2 アラーム構成のまま N 窓を巡回できる）。窓が無ければ単一窓 onHour/offHour にフォールバック。
+        val windows = cfg.effectiveWindows()
+        val nextOn = windows
+            .map { nextOccurrence(now, cfg, it.onHour, it.onMinute) }
+            .minByOrNull { it.timeInMillis } ?: nextOccurrence(now, cfg, cfg.onHour, cfg.onMinute)
+        val nextOff = windows
+            .map { nextOccurrence(now, cfg, it.offHour, it.offMinute) }
+            .minByOrNull { it.timeInMillis } ?: nextOccurrence(now, cfg, cfg.offHour, cfg.offMinute)
 
         setExactAlarm(context, am, nextOn, ACTION_ALARM_ON, REQ_ON)
         setExactAlarm(context, am, nextOff, ACTION_ALARM_OFF, REQ_OFF)
@@ -133,6 +156,18 @@ object ScheduleManager {
         }
         // どこにも該当しない（マスクが 0 など）→ 1 日後で適当に置く（実用上 0 マスクは UI で避ける）
         return (target.clone() as Calendar).apply { add(Calendar.DAY_OF_MONTH, 1) }
+    }
+
+    /** 曜日マスクを無視した「次回 hour:minute」（当日が未来ならその当日、過ぎていれば翌日）。定時ネット復旧用。 */
+    private fun nextDailyAt(now: Calendar, hour: Int, minute: Int): Calendar {
+        val target = (now.clone() as Calendar).apply {
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        if (!target.after(now)) target.add(Calendar.DAY_OF_MONTH, 1)
+        return target
     }
 
     private fun setExactAlarm(

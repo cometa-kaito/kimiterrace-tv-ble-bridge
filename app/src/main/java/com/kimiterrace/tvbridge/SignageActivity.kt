@@ -268,6 +268,7 @@ class SignageActivity : AppCompatActivity() {
      */
     private fun maybeStartLockTask() {
         runCatching {
+            if (!Config.kioskEnabled(this)) return  // no-DO/kiosk=off: ピン留めしない（HOME/Back で抜けられる）
             if (!PowerController.isDeviceOwner(this)) return  // 開発機を固めない
             // 念のため許可リストへ自分を登録（Device Owner のみ有効）
             PowerController.allowLockTaskSelf(this)

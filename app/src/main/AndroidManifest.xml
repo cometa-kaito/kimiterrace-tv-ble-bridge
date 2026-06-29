@@ -36,6 +36,7 @@
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Wakelock (CPU をスリープさせない) -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -174,6 +175,51 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!-- SwitchBot プラグ制御 / ネット復旧 / reboot のローカルトリガ（adb 検証用 / 将来の内部利用）。
+             ⚠ REBOOT_NOW(DO機=HKCはstandbyに落ちる)・NET_WIFI_*・SET_* 等「端末を落としうる」操作を受けるため
+             exported=false で外部アプリからの無認証トリガを遮断する。adb は -n でコンポーネント指定すれば
+             非exportedでも届く（手順書は全て `am broadcast -n .../.PlugCommandReceiver -a …` 形で記述済）。 -->
+        <receiver
+            android:name=".PlugCommandReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.kimiterrace.tvbridge.PLUG_ON" />
+                <action android:name="com.kimiterrace.tvbridge.PLUG_OFF" />
+                <action android:name="com.kimiterrace.tvbridge.PLUG_CYCLE" />
+                <action android:name="com.kimiterrace.tvbridge.PLUG_TOGGLE" />
+                <action android:name="com.kimiterrace.tvbridge.NET_CYCLE" />
+                <action android:name="com.kimiterrace.tvbridge.NET_REVALIDATE" />
+                <action android:name="com.kimiterrace.tvbridge.NET_WIFI_TOGGLE" />
+                <action android:name="com.kimiterrace.tvbridge.NET_WIFI_API" />
+                <action android:name="com.kimiterrace.tvbridge.NET_WIFI_A11Y" />
+                <action android:name="com.kimiterrace.tvbridge.REBOOT_NOW" />
+                <action android:name="com.kimiterrace.tvbridge.SET_MORNING_REBOOT" />
+                <action android:name="com.kimiterrace.tvbridge.SET_DAILY_RECOVERY" />
+                <action android:name="com.kimiterrace.tvbridge.SET_RECOVERY_WIFI" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Wi-Fi 自動張り直し用アクセシビリティ・サービス（非DO機の "疑似 Wi-Fi 再起動"）。
+          有効化は adb で一度きり:
+            adb shell settings put secure enabled_accessibility_services \
+              com.kimiterrace.tvbridge/com.kimiterrace.tvbridge.WifiRecoveryAccessibilityService
+            adb shell settings put secure accessibility_enabled 1
+        -->
+        <service
+            android:name=".WifiRecoveryAccessibilityService"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/wifi_recovery_a11y" />
+        </service>
 
         <!--
           Device Owner / 端末管理者レシーバ。

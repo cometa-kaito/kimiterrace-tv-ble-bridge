@@ -109,6 +109,9 @@ object KeepAwakeManager {
         if (!Config.autoLaunchSignage(context)) return                   // 自動表示しない構成は触らない
         if (Config.signageUrl(context).isBlank()) return
         if (SignageActivity.isForeground) return                         // 既に前面なら何もしない
+        // no-DO（kiosk=false）: 抜けられるよう前面へ引き戻さない。復帰は reboot の起動時自動表示に委ねる。
+        // OFF 期間の screenOff（夜間消灯）は上で済んでおり、ここは ON 期間の前面強制復帰のみを抑止する。
+        if (!Config.kioskEnabled(context)) return
         Log.i(TAG, "signage not foreground during ON period -> re-assert")
         launchSignage(context)
     }
