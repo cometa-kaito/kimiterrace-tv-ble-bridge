@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.view.View
 import android.widget.FrameLayout
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 
 /**
  * OFF 時間中、画面全体を真っ黒に覆う最前面 Activity。
@@ -71,12 +72,9 @@ class BlackScreenActivity : AppCompatActivity() {
 
         // dismiss receiver 登録
         val filter = IntentFilter(ACTION_DISMISS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(dismissReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(dismissReceiver, filter)
-        }
+        // 送信元は自アプリ（ScheduleManager）のみ。API 33 未満でも ContextCompat が署名権限付きで非公開登録する
+        // （他アプリからの偽ブロードキャストを受けない）。adb の am broadcast に依存する runbook は無い。
+        ContextCompat.registerReceiver(this, dismissReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     override fun onBackPressed() {

@@ -56,6 +56,9 @@ jobs:
           echo "--- google-services.json (sanity: keys only) ---"
           grep -E '"(project_id|package_name)"' app/google-services.json || true
 
+      - name: Unit tests (JVM)
+        run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 

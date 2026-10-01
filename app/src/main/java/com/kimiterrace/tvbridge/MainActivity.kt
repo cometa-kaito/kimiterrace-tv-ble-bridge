@@ -235,12 +235,9 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         val filter = IntentFilter(BleService.ACTION_STATUS_UPDATED)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(statusReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(statusReceiver, filter)
-        }
+        // 送信元は自アプリ（BleService）のみ。API 33 未満でも ContextCompat が署名権限付きで非公開登録する
+        // （他アプリからの偽ブロードキャストを受けない）。adb の am broadcast に依存する runbook は無い。
+        ContextCompat.registerReceiver(this, statusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         refreshHandler.post(refreshRunnable)
     }
 
