@@ -203,7 +203,7 @@ class ConfigPoller(
         cfg.optString("signage_url").takeIf { it.isNotBlank() }?.let { url ->
             if (url != Config.signageUrl(context)) {
                 Config.setSignageUrl(context, url)
-                Log.i(TAG, "signage_url updated -> $url")
+                Log.i(TAG, "signage_url updated -> ${NavigationPolicy.redactForLog(url)}")
                 // 既に SignageActivity が動いていれば URL を差し替え
                 context.sendBroadcast(
                     Intent(SignageActivity.ACTION_UPDATE_URL)

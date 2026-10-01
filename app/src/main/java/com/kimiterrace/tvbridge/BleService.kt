@@ -111,7 +111,7 @@ class BleService : Service() {
             scope = scope,
         )
 
-        Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${webhookUrl.take(60)}...")
+        Log.i(TAG, "BleService onCreate: target=$targetMac webhook=${NavigationPolicy.redactForLog(webhookUrl)}")
 
         // FCM トークンを取得→保存（ConfigPoller が次回ポーリングで v2 へ報告＝遠隔起動プッシュの宛先）。
         runCatching {

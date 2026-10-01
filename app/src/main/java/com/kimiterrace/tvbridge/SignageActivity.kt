@@ -71,7 +71,7 @@ class SignageActivity : AppCompatActivity() {
                         return
                     }
                     if (newUrl.isNotBlank() && newUrl != currentUrl) {
-                        Log.i(TAG, "url change requested: $newUrl")
+                        Log.i(TAG, "url change requested: ${NavigationPolicy.redactForLog(newUrl)}")
                         currentUrl = newUrl
                         webView.loadUrl(newUrl)
                     }
@@ -203,7 +203,7 @@ class SignageActivity : AppCompatActivity() {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                Log.i(TAG, "page loaded: $url")
+                Log.i(TAG, "page loaded: ${NavigationPolicy.redactForLog(url)}")
                 statusText.visibility = View.GONE
             }
 
@@ -212,7 +212,7 @@ class SignageActivity : AppCompatActivity() {
                 request: WebResourceRequest?,
                 error: android.webkit.WebResourceError?,
             ) {
-                val msg = "ロードエラー: ${error?.description ?: "unknown"} (${request?.url})"
+                val msg = "ロードエラー: ${error?.description ?: "unknown"} (${NavigationPolicy.redactForLog(request?.url?.toString())})"
                 Log.w(TAG, msg)
                 // メインフレームのエラーのみ表示
                 if (request?.isForMainFrame == true) {
