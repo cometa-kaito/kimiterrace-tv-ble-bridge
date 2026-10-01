@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Message
 import android.util.Log
 import android.view.KeyEvent
 import android.view.View
@@ -22,6 +23,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 
 /**
  * Fully Kiosk を置き換える、キミテラス TV ブリッジ内蔵のキオスク表示 Activity。
@@ -62,6 +64,12 @@ class SignageActivity : AppCompatActivity() {
                 }
                 ACTION_UPDATE_URL -> {
                     val newUrl = intent.getStringExtra(EXTRA_URL) ?: return
+                    // 正規経路（ConfigPoller）は prefs を書いてから送ってくる。prefs の signage_url を
+                    // 基準に許可ホストを判定し、それ以外のホストへの差し替えは受け付けない。
+                    if (!NavigationPolicy.isAllowed(newUrl, Config.signageUrl(this@SignageActivity))) {
+                        Log.w(TAG, "url change rejected (not allowed): ${NavigationPolicy.redactForLog(newUrl)}")
+                        return
+                    }
                     if (newUrl.isNotBlank() && newUrl != currentUrl) {
                         Log.i(TAG, "url change requested: $newUrl")
                         currentUrl = newUrl
@@ -151,10 +159,16 @@ class SignageActivity : AppCompatActivity() {
             mediaPlaybackRequiresUserGesture = false
             loadWithOverviewMode = true
             useWideViewPort = true
-            allowContentAccess = true
+            // サイネージは https のリモートページだけを表示する。端末内ファイル / content:// は不要。
+            allowContentAccess = false
             allowFileAccess = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-            // 一部端末で必要
+            @Suppress("DEPRECATION")
+            allowFileAccessFromFileURLs = false
+            @Suppress("DEPRECATION")
+            allowUniversalAccessFromFileURLs = false
+            // https ページ内の http サブリソースは読まない（v2 の CSP も self + https CDN のみ）
+            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            // 新規ウィンドウを作らせない（target=_blank / window.open は onCreateWindow でも拒否）
             setSupportMultipleWindows(false)
             javaScriptCanOpenWindowsAutomatically = false
         }
@@ -162,17 +176,30 @@ class SignageActivity : AppCompatActivity() {
         wv.isFocusableInTouchMode = true
 
         // 遠隔起動 / 自己回復チャネル: 裏方サービス(BleService)が死んでも、前面で生存する WebView から
-        // 蘇生できる。signage ページ(v2・自社ドメインのみ読込・外部ナビは shouldOverrideUrlLoading で遮断)が
+        // 蘇生できる。signage ページ(v2・自社ドメインのみ読込・外部ナビは shouldOverrideUrlLoading の
+        // NavigationPolicy 許可リストで遮断)が
         // 読み込み毎に window.AndroidKiosk.ensureService() を呼ぶ想定。
         wv.addJavascriptInterface(KioskBridge(applicationContext), "AndroidKiosk")
 
         wv.webViewClient = object : WebViewClient() {
+            /**
+             * トップレベル遷移の許可リスト。true を返すと遷移を取り消す（外部ブラウザ/他アプリにも渡さない）。
+             * 許可 = https かつ host が「設定中の signage_url の host」または本番ホスト（NavigationPolicy）。
+             * サブフレーム（iframe）の遷移はトップレベルを奪えないので対象外（許可）。
+             */
             override fun shouldOverrideUrlLoading(
                 view: WebView?,
                 request: WebResourceRequest?,
             ): Boolean {
-                // ナビゲーションは全部 WebView 内部で完結（外部ブラウザに飛ばさない）
-                return false
+                if (request == null) return true
+                if (!request.isForMainFrame) return false
+                return blockIfNotAllowed(request.url?.toString(), redirect = request.isRedirect)
+            }
+
+            // minSdk 26 では上の overload が呼ばれるが、念のため旧 overload も同じ判定にする（メインフレーム扱い）。
+            @Deprecated("Deprecated in Java")
+            override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                return blockIfNotAllowed(url, redirect = false)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -194,13 +221,37 @@ class SignageActivity : AppCompatActivity() {
                 }
             }
         }
-        wv.webChromeClient = WebChromeClient()
+        wv.webChromeClient = object : WebChromeClient() {
+            // setSupportMultipleWindows(false) なので通常は呼ばれないが、来ても新規ウィンドウは作らない。
+            override fun onCreateWindow(
+                view: WebView?,
+                isDialog: Boolean,
+                isUserGesture: Boolean,
+                resultMsg: Message?,
+            ): Boolean {
+                Log.w(TAG, "blocked window.open / target=_blank (dialog=$isDialog, gesture=$isUserGesture)")
+                return false
+            }
+        }
+    }
+
+    /** 許可リスト外なら遷移を取り消して true。許可なら false（WebView 内でそのまま遷移）。 */
+    private fun blockIfNotAllowed(url: String?, redirect: Boolean): Boolean {
+        val configured = Config.signageUrl(this)
+        if (NavigationPolicy.isAllowed(url, configured)) return false
+        Log.w(
+            TAG,
+            "blocked navigation${if (redirect) " (redirect)" else ""}: " +
+                "${NavigationPolicy.redactForLog(url)} allowed=${NavigationPolicy.allowedHosts(configured)}",
+        )
+        return true
     }
 
     /**
      * WebView から呼べる遠隔/自己回復ブリッジ。WebView は裏方サービスが死んでも前面で生き続けるため、
      * ここから BleService を起動し直せる。`@JavascriptInterface` は信頼ページ(自社 signage)のみが呼ぶ
-     * （WebView は signage_url=app.school-signage.net のみ読込・外部ナビ遮断）。露出は ensureService のみ。
+     * （トップレベルは NavigationPolicy で signage_url のホスト／app.school-signage.net に限定）。
+     * 露出は ensureService のみ（冪等・引数なし）。
      */
     private class KioskBridge(private val appContext: Context) {
         @JavascriptInterface
@@ -281,12 +332,9 @@ class SignageActivity : AppCompatActivity() {
             addAction(ACTION_UPDATE_URL)
             addAction(ACTION_EXIT)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(controlReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(controlReceiver, filter)
-        }
+        // API 33 未満でも非公開にする（ContextCompat が署名権限付きで登録）。他アプリから
+        // SIGNAGE_UPDATE_URL / SIGNAGE_EXIT を撃たれて表示先を差し替え・終了されるのを防ぐ。
+        ContextCompat.registerReceiver(this, controlReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
 
         // URL が外から変更された場合のキャッチアップ
         val latestUrl = Config.signageUrl(this)
