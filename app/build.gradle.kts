@@ -24,14 +24,31 @@ android {
         buildConfigField("String", "DEFAULT_CONFIG_ENDPOINT", "\"https://app.school-signage.net/api/tv/lp-config\"")
     }
 
+    // 署名鍵の固定（2026-10-04）
+    // このアプリは Device Owner なのでアンインストールできない＝現場の端末は「最初に入れた鍵」でしか更新できない。
+    // CI の使い捨て debug 鍵で署名すると INSTALL_FAILED_UPDATE_INCOMPATIBLE になる。
+    // 環境変数 TV_SIGNING_STORE_FILE が在ればその keystore（現場と同じ鍵 SHA-256 0951ef53…）で debug/release とも署名する。
+    // 無ければ従来どおりマシンごとの debug 鍵（＝現場には入れられない）。
+    val pinnedStoreFile = System.getenv("TV_SIGNING_STORE_FILE")?.takeIf { it.isNotBlank() }?.let { file(it) }
+    val pinnedSigning = if (pinnedStoreFile != null && pinnedStoreFile.exists()) {
+        signingConfigs.create("pinned") {
+            storeFile = pinnedStoreFile
+            storePassword = System.getenv("TV_SIGNING_STORE_PASSWORD") ?: "android"
+            keyAlias = System.getenv("TV_SIGNING_KEY_ALIAS") ?: "androiddebugkey"
+            keyPassword = System.getenv("TV_SIGNING_KEY_PASSWORD") ?: "android"
+        }
+    } else null
+
     buildTypes {
         debug {
             isMinifyEnabled = false
+            // debuggable のまま（run-as で prefs を読み書きする運用のため）。鍵だけ差し替える。
+            if (pinnedSigning != null) signingConfig = pinnedSigning
         }
         release {
             isMinifyEnabled = false
             // PoC 用：デバッグ署名で release ビルドを許容（CI ビルドの簡素化）
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = pinnedSigning ?: signingConfigs.getByName("debug")
         }
     }
 
