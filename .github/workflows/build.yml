@@ -56,32 +56,76 @@ jobs:
           echo "--- google-services.json (sanity: keys only) ---"
           grep -E '"(project_id|package_name)"' app/google-services.json || true
 
+      # 署名鍵の固定。現場の端末（Device Owner＝アンインストール不可）は 2026-06 から鍵 0951ef53… で入っている。
+      # 使い捨ての debug 鍵で署名した APK は INSTALL_FAILED_UPDATE_INCOMPATIBLE で入らない。
+      # Secret `TV_SIGNING_KEYSTORE_BASE64`（`base64 -i <keystore>` の出力）を復号して使う。
+      # パスワード・別名は Secret `TV_SIGNING_STORE_PASSWORD` / `TV_SIGNING_KEY_ALIAS` / `TV_SIGNING_KEY_PASSWORD`
+      # （未設定なら android / androiddebugkey / android＝Android の debug keystore の既定値）。
+      # Secret が無い（fork からの PR 等）ときは使い捨て鍵のままビルドし、成果物名に -UNPINNED を付けて区別する。
+      - name: Materialize signing keystore
+        env:
+          TV_SIGNING_KEYSTORE_BASE64: ${{ secrets.TV_SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$TV_SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$TV_SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/tv-signing.keystore"
+            echo "TV_SIGNING_STORE_FILE=$RUNNER_TEMP/tv-signing.keystore" >> "$GITHUB_ENV"
+            echo "APK_SUFFIX=" >> "$GITHUB_ENV"
+            echo "Pinned signing keystore materialized."
+          else
+            echo "::warning::TV_SIGNING_KEYSTORE_BASE64 secret not set. APK is signed with a THROWAWAY key and cannot update devices in the field."
+            echo "APK_SUFFIX=-UNPINNED" >> "$GITHUB_ENV"
+          fi
+
       - name: Unit tests (JVM)
         run: ./gradlew testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build debug APK
+        env:
+          TV_SIGNING_STORE_PASSWORD: ${{ secrets.TV_SIGNING_STORE_PASSWORD }}
+          TV_SIGNING_KEY_ALIAS: ${{ secrets.TV_SIGNING_KEY_ALIAS }}
+          TV_SIGNING_KEY_PASSWORD: ${{ secrets.TV_SIGNING_KEY_PASSWORD }}
         run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Build release APK
+        env:
+          TV_SIGNING_STORE_PASSWORD: ${{ secrets.TV_SIGNING_STORE_PASSWORD }}
+          TV_SIGNING_KEY_ALIAS: ${{ secrets.TV_SIGNING_KEY_ALIAS }}
+          TV_SIGNING_KEY_PASSWORD: ${{ secrets.TV_SIGNING_KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename APKs
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/tv-ble-bridge-debug.apk
-          cp app/build/outputs/apk/release/app-release.apk out/tv-ble-bridge-release.apk
+          cp app/build/outputs/apk/debug/app-debug.apk out/tv-ble-bridge-debug${APK_SUFFIX}.apk
+          cp app/build/outputs/apk/release/app-release.apk out/tv-ble-bridge-release${APK_SUFFIX}.apk
           ls -la out/
+
+      # 署名指紋の検査。鍵が固定されているのに現場の指紋と違えば落とす（取り違えた鍵を Secret に入れた事故を止める）。
+      - name: Verify signing certificate
+        env:
+          EXPECTED_SHA256: 0951ef53502c43ff1fccd99e8f4386a1da081c806898527a2273295931fc5ed3
+        run: |
+          APKSIGNER="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          for f in out/*.apk; do
+            "$APKSIGNER" verify "$f"
+            got=$("$APKSIGNER" verify --print-certs "$f" | grep -m1 'SHA-256 digest' | awk '{print $NF}')
+            echo "$f signer SHA-256: $got"
+            if [ -z "$APK_SUFFIX" ] && [ "$got" != "$EXPECTED_SHA256" ]; then
+              echo "::error::$f is signed with $got, expected $EXPECTED_SHA256 (field devices)."
+              exit 1
+            fi
+          done
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tv-ble-bridge-debug-apk
-          path: out/tv-ble-bridge-debug.apk
+          name: tv-ble-bridge-debug${{ env.APK_SUFFIX }}-apk
+          path: out/tv-ble-bridge-debug${{ env.APK_SUFFIX }}.apk
           retention-days: 30
 
       - name: Upload release APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tv-ble-bridge-release-apk
-          path: out/tv-ble-bridge-release.apk
+          name: tv-ble-bridge-release${{ env.APK_SUFFIX }}-apk
+          path: out/tv-ble-bridge-release${{ env.APK_SUFFIX }}.apk
           retention-days: 30
